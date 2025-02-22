@@ -1,4 +1,4 @@
-use crate::html_elements::global_attr;
+use crate::html_elements::common_attributes;
 
 #[derive(Default)]
 pub enum PopoverTargetActionOption {
@@ -35,10 +35,40 @@ pub enum InputTypeOption {
     Week,
 }
 
+impl InputTypeOption {
+    pub fn derive_input(value: &str) -> InputTypeOption {
+        use InputTypeOption::*;
+        match value {
+            "button" => Button,
+            "checkbox" => Checkbox,
+            "color" => Color,
+            "date" => Date,
+            "datetime-local" => DatetimeLocal,
+            "email" => Email,
+            "file" => File,
+            "hidden" => Hidden,
+            "image" => Image,
+            "month" => Month,
+            "number" => Number,
+            "password" => Password,
+            "radio" => Radio,
+            "range" => Range,
+            "reset" => Reset,
+            "search" => Search,
+            "submit" => Submit,
+            "tel" => Tel,
+            "text" => Text,
+            "time" => Time,
+            "url" => Url,
+            "week" => Week,
+            _ => Button,
+        }
+    }
+}
+
 pub struct Input {
     accept: Option<String>, // TODO: Should probably make this it's own type
     alt: Option<String>,
-    autocapitalize: global_attr::AutoCapitalizeOptions,
     autofocus: bool,
     capture: Option<String>,
     checked: bool,
@@ -78,7 +108,6 @@ impl Default for Input {
         Input {
             accept: None,
             alt: None,
-            autocapitalize: global_attr::AutoCapitalizeOptions::default(),
             autofocus: false,
             capture: None,
             checked: false,
@@ -111,6 +140,73 @@ impl Default for Input {
             input_type: InputTypeOption::default(),
             value: None,
             width: None,
+        }
+    }
+}
+
+impl common_attributes::Element for Input {
+    fn add_attribute(&mut self, name: String, value: String) {
+        match name.as_str() {
+            "accept" => self.accept = Some(value),
+            "alt" => self.alt = Some(value),
+            "capture" => self.capture = Some(value),
+            "checked" => self.checked = true,
+            "dirname" => self.dirname = Some(value),
+            "disabled" => self.disabled = true,
+            "form" => self.form = Some(value),
+            "formaction" => self.formaction = Some(value),
+            "formenctype" => self.formenctype = Some(value),
+            "formmethod" => self.formmethod = Some(value),
+            "formnovalidate" => self.formnovalidate = Some(value),
+            "formtarget" => self.formtarget = Some(value),
+            "height" => match value.parse() {
+                Ok(h) => self.height = Some(h),
+                Err(_) => {}
+            },
+            "list" => self.list = Some(value),
+            "max" => match value.parse() {
+                Ok(m) => self.max = Some(m),
+                Err(_) => {}
+            },
+            "maxlength" => match value.parse() {
+                Ok(ml) => self.maxlength = Some(ml),
+                Err(_) => {}
+            },
+            "min" => match value.parse() {
+                Ok(m) => self.min = Some(m),
+                Err(_) => {}
+            },
+            "minlength" => match value.parse() {
+                Ok(ml) => self.minlength = Some(ml),
+                Err(_) => {}
+            },
+            "multiple" => self.multiple = true,
+            "name" => self.name = Some(value),
+            "pattern" => self.pattern = Some(value),
+            "placeholder" => self.placeholder = Some(value),
+            "popovertarget" => self.popovertarget = Some(value),
+            "popovertargetaction" => {
+                self.popovertargetaction = match value.as_str() {
+                    "hide" => PopoverTargetActionOption::Hide,
+                    "show" => PopoverTargetActionOption::Show,
+                    "toggle" | _ => PopoverTargetActionOption::Toggle,
+                }
+            }
+            "readonly" => self.readonly = true,
+            "required" => self.required = true,
+            "size" => self.size = Some(value),
+            "src" => self.src = Some(value),
+            "step" => match value.parse() {
+                Ok(s) => self.step = s,
+                Err(_) => {}
+            },
+            "type" => self.input_type = InputTypeOption::derive_input(value.as_str()),
+            "value" => self.value = Some(value),
+            "width" => match value.parse() {
+                Ok(w) => self.width = Some(w),
+                Err(_) => {}
+            },
+            _ => {}
         }
     }
 }

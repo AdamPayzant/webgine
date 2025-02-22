@@ -1,3 +1,5 @@
+use crate::html_elements::common_attributes;
+
 pub struct Meter {
     value: f64,
     min: f64,
@@ -18,6 +20,41 @@ impl Default for Meter {
             high: 1.0,
             optimum: None,
             form: None,
+        }
+    }
+}
+
+impl common_attributes::Element for Meter {
+    fn add_attribute(&mut self, name: String, value: String) {
+        match name.as_str() {
+            "value" => match value.parse() {
+                Ok(v) => self.value = v,
+                Err(_) => {}
+            },
+            "min" => match value.parse() {
+                Ok(v) => self.min = v,
+                Err(_) => {}
+            },
+            "max" => match value.parse() {
+                Ok(v) => self.max = v,
+                Err(_) => {}
+            },
+            "low" => match value.parse() {
+                Ok(v) => self.low = v,
+                Err(_) => {}
+            },
+            "high" => match value.parse() {
+                Ok(v) => self.high = v,
+                Err(_) => {}
+            },
+            "optimum" => {
+                self.optimum = match value.parse() {
+                    Ok(v) => Some(v),
+                    Err(_) => None,
+                }
+            }
+            "form" => self.form = Some(value),
+            _ => {}
         }
     }
 }

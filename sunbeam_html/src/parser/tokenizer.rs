@@ -1,7 +1,9 @@
+use std::collections::VecDeque;
+
 #[derive(Clone)]
-struct DoctypeData {
-    public_identifier: Option<String>,
-    system: Option<String>,
+pub struct DoctypeData {
+    pub public_identifier: Option<String>,
+    pub system: Option<String>,
 }
 
 impl DoctypeData {
@@ -14,7 +16,7 @@ impl DoctypeData {
 }
 
 #[derive(Clone)]
-enum TokenTag {
+pub enum TokenTag {
     Character,
     Comment,
     StartTag,
@@ -24,9 +26,9 @@ enum TokenTag {
 }
 
 #[derive(Clone)]
-struct HtmlAttribute {
-    name: String,
-    value: String,
+pub struct HtmlAttribute {
+    pub name: String,
+    pub value: String,
 }
 
 impl HtmlAttribute {
@@ -39,9 +41,9 @@ impl HtmlAttribute {
 }
 
 #[derive(Clone)]
-struct HtmlTokenFlags {
-    self_closing: bool,
-    force_quirks: bool,
+pub struct HtmlTokenFlags {
+    pub self_closing: bool,
+    pub force_quirks: bool,
 }
 
 impl HtmlTokenFlags {
@@ -55,10 +57,10 @@ impl HtmlTokenFlags {
 
 #[derive(Clone)]
 pub struct HtmlToken {
-    tag: TokenTag,
-    data: String,
-    attributes: Vec<HtmlAttribute>,
-    flags: HtmlTokenFlags,
+    pub tag: TokenTag,
+    pub data: String,
+    pub attributes: Vec<HtmlAttribute>,
+    pub flags: HtmlTokenFlags,
 }
 
 impl HtmlToken {
@@ -92,7 +94,7 @@ fn new_character_string(c: char) -> HtmlToken {
 }
 
 #[derive(Clone, Copy)]
-enum FsmState {
+pub enum FsmState {
     Data,
     RCData,
     RawText,
@@ -243,1541 +245,1648 @@ fn lookup_character_reference(code: u32) -> u32 {
     }
 }
 
-// chars[idx].to_lowercase().next().unwrap()
+macro_rules! emit_token {
+    ($self:ident, $arg:expr) => {{
+        $self.token_buffer.push_back($arg);
+        $self.idx += 1;
+        return;
+    }};
+}
+
+macro_rules! emit_token_no_return {
+    ($self:ident, $arg: expr) => {
+        $self.token_buffer.push_back($arg);
+    };
+}
+
+pub struct Tokenizer {
+    idx: usize,
+    chars: Vec<char>,
+
+    state: FsmState,
+    return_state: FsmState,
+
+    cur_token: HtmlToken,
+    token_buffer: VecDeque<HtmlToken>,
+
+    temp_buffer: String,
+    open_tag_stack: Vec<String>,
+    character_reference_code: u32,
+}
+
+// self.chars[self.idx].to_lowercase().next().unwrap()
 // '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}'
 
-// Ways HTML tokenizer spec is knowingly broken:
-//  - In the case of duplicate attributes, does not occur and instead dups will be ignored by the parser
-//  - We currently do not have a parser pause flag and thus cannot check it between steps
-//  - NamedCharacterReference is unimplimented
-//
-// Any other breaks in the HTML tokenizer must be fixed as found
-pub fn tokenize_string(html_string: &str) -> Vec<HtmlToken> {
-    let mut tokens = Vec::new();
-
-    let mut idx = 0;
-    let chars: Vec<char> = html_string.chars().collect();
-    let mut state = FsmState::Data;
-    let mut open_tag_stack: Vec<String> = Vec::new();
-    let mut return_state = state;
-
-    let mut cur_token = HtmlToken::new(TokenTag::EoF);
-    let mut temp_buffer = String::new();
-
-    let mut character_reference_code = 0;
-
-    while idx < chars.len() {
-        // continue is used to reconsume or not consume
-        use FsmState::*;
-
-        match state {
-            Data => match chars[idx] {
-                '&' => {
-                    return_state = Data;
-                    state = CharacterReference;
-                }
-                '<' => state = TagOpen,
-                _ => tokens.push(new_character_string(chars[idx])),
-            },
-            RCData => match chars[idx] {
-                '&' => {
-                    return_state = RCData;
-                    state = CharacterReference;
-                }
-                '<' => state = RCDataLessThan,
-                '\u{0000}' => tokens.push(new_character_string('\u{FFFD}')),
-                _ => tokens.push(new_character_string(chars[idx])),
-            },
-            RawText => match chars[idx] {
-                '<' => state = RawTextLessThan,
-                '\u{0000}' => tokens.push(new_character_string('\u{FFFD}')),
-                _ => tokens.push(new_character_string(chars[idx])),
-            },
-            ScriptData => match chars[idx] {
-                '<' => state = ScriptDataLessThan,
-                '\u{0000}' => tokens.push(new_character_string('\u{FFFD}')),
-                _ => tokens.push(new_character_string(chars[idx])),
-            },
-            Plaintext => match chars[idx] {
-                '\u{0000}' => tokens.push(new_character_string('\u{FFFD}')),
-                _ => tokens.push(new_character_string(chars[idx])),
-            },
-            TagOpen => match chars[idx] {
-                '!' => state = MarkupDeclarationOpen,
-                '/' => state = EndTagOpen,
-                '?' => {
-                    cur_token = HtmlToken::new(TokenTag::Comment);
-                    state = BogusComment;
-                    continue;
-                }
-                _ => {
-                    if chars[idx].is_alphabetic() {
-                        cur_token = HtmlToken::new(TokenTag::StartTag);
-                        state = TagName;
-                        continue;
-                    } else {
-                        tokens.push(new_character_string('<'));
-                        state = Data;
-                        continue;
-                    }
-                }
-            },
-            EndTagOpen => match chars[idx] {
-                '>' => state = Data,
-                _ => {
-                    if chars[idx].is_alphabetic() {
-                        cur_token = HtmlToken::new(TokenTag::EndTag);
-                        state = TagName;
-                        continue;
-                    } else {
-                        cur_token = HtmlToken::new(TokenTag::Comment);
-                        state = BogusComment;
-                        continue;
-                    }
-                }
-            },
-            TagName => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => state = BeforeAttributeName,
-                '/' => state = SelfClosingStartTag,
-                '>' => {
-                    state = Data;
-                    tokens.push(cur_token.clone());
-
-                    if !matches!(cur_token.tag, TokenTag::StartTag) {
-                        open_tag_stack.push(cur_token.data.clone());
-                    }
-                }
-                '\u{0000}' => cur_token.data_append('\u{FFFD}'),
-                _ => cur_token.data_append(chars[idx].to_lowercase().next().unwrap()),
-            },
-            RCDataLessThan => match chars[idx] {
-                '/' => {
-                    temp_buffer = String::new();
-                    state = RCDataEndTagOpen;
-                }
-                _ => {
-                    tokens.push(new_character_string('<'));
-                    state = RCData;
-                    continue;
-                }
-            },
-            RCDataEndTagOpen => {
-                if chars[idx].is_alphabetic() {
-                    cur_token = HtmlToken::new(TokenTag::EndTag);
-                    state = RCDataEndTagName;
-                    continue;
-                } else {
-                    tokens.push(new_character_string('<'));
-                    tokens.push(new_character_string('/'));
-                    state = RCData;
-                    continue;
-                }
-            }
-            RCDataEndTagName => {
-                let mut acted = false;
-                match open_tag_stack.last() {
-                    Some(val) => {
-                        if *val == cur_token.data {
-                            match chars[idx] {
-                                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
-                                    state = BeforeAttributeName;
-                                    acted = true;
-                                }
-                                '/' => {
-                                    state = SelfClosingStartTag;
-                                    acted = true;
-                                }
-                                '>' => {
-                                    state = Data;
-                                    acted = true;
-                                }
-                                _ => {}
-                            }
-                            if acted {
-                                open_tag_stack.pop();
-                            }
-                        }
-                    }
-                    None => {}
-                }
-                if chars[idx].is_alphabetic() {
-                    cur_token.data_append(chars[idx].to_lowercase().next().unwrap());
-                    temp_buffer.push(chars[idx]);
-                    acted = true;
-                }
-
-                if !acted {
-                    tokens.push(new_character_string('<'));
-                    tokens.push(new_character_string('/'));
-                    temp_buffer
-                        .chars()
-                        .for_each(|c| tokens.push(new_character_string(c)));
-                    state = RCData;
-                    continue;
-                }
-            }
-            RawTextLessThan => match chars[idx] {
-                '/' => {
-                    temp_buffer = String::new();
-                    state = RawTextEndTagOpen;
-                }
-                _ => {
-                    tokens.push(new_character_string('<'));
-                    state = RawText;
-                    continue;
-                }
-            },
-            RawTextEndTagOpen => {
-                if chars[idx].is_alphabetic() {
-                    cur_token = HtmlToken::new(TokenTag::EndTag);
-                    state = RawTextEndTagName;
-                    continue;
-                } else {
-                    tokens.push(new_character_string('<'));
-                    tokens.push(new_character_string('/'));
-                    state = RawText;
-                    continue;
-                }
-            }
-            RawTextEndTagName => {
-                let mut acted = false;
-                match open_tag_stack.last() {
-                    Some(val) => {
-                        if *val == cur_token.data {
-                            match chars[idx] {
-                                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
-                                    state = BeforeAttributeName;
-                                    acted = true;
-                                }
-                                '/' => {
-                                    state = SelfClosingStartTag;
-                                    acted = true;
-                                }
-                                '>' => {
-                                    state = Data;
-                                    acted = true;
-                                }
-                                _ => {}
-                            }
-                            if acted {
-                                open_tag_stack.pop();
-                            }
-                        }
-                    }
-                    None => {}
-                }
-                if chars[idx].is_alphabetic() {
-                    cur_token.data_append(chars[idx].to_lowercase().next().unwrap());
-                    temp_buffer.push(chars[idx]);
-                    acted = true;
-                }
-
-                if !acted {
-                    tokens.push(new_character_string('<'));
-                    tokens.push(new_character_string('/'));
-                    temp_buffer
-                        .chars()
-                        .for_each(|c| tokens.push(new_character_string(c)));
-                    state = RawText;
-                    continue;
-                }
-            }
-            ScriptDataLessThan => match chars[idx] {
-                '/' => {
-                    temp_buffer = String::new();
-                    state = ScriptDataEndTagOpen;
-                }
-                '!' => {
-                    state = ScriptDataEscapeStart;
-                    tokens.push(new_character_string('<'));
-                    tokens.push(new_character_string('!'));
-                }
-                _ => {
-                    tokens.push(new_character_string('<'));
-                    state = ScriptData;
-                    continue;
-                }
-            },
-            ScriptDataEndTagOpen => {
-                if chars[idx].is_alphabetic() {
-                    cur_token = HtmlToken::new(TokenTag::EndTag);
-                    state = ScriptDataEndTagName;
-                    continue;
-                } else {
-                    tokens.push(new_character_string('<'));
-                    tokens.push(new_character_string('/'));
-                    state = ScriptData;
-                    continue;
-                }
-            }
-            ScriptDataEndTagName => {
-                let mut acted = false;
-                match open_tag_stack.last() {
-                    Some(val) => {
-                        if *val == cur_token.data {
-                            match chars[idx] {
-                                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
-                                    state = BeforeAttributeName;
-                                    acted = true;
-                                }
-                                '/' => {
-                                    state = SelfClosingStartTag;
-                                    acted = true;
-                                }
-                                '>' => {
-                                    state = Data;
-                                    acted = true;
-                                }
-                                _ => {}
-                            }
-                            if acted {
-                                open_tag_stack.pop();
-                            }
-                        }
-                    }
-                    None => {}
-                }
-                if chars[idx].is_alphabetic() {
-                    cur_token.data_append(chars[idx].to_lowercase().next().unwrap());
-                    temp_buffer.push(chars[idx]);
-                    acted = true;
-                }
-
-                if !acted {
-                    tokens.push(new_character_string('<'));
-                    tokens.push(new_character_string('/'));
-                    temp_buffer
-                        .chars()
-                        .for_each(|c| tokens.push(new_character_string(c)));
-                    state = ScriptData;
-                    continue;
-                }
-            }
-            ScriptDataEscapeStart => match chars[idx] {
-                '-' => {
-                    state = ScriptDataEscapedDash;
-                    tokens.push(new_character_string('-'));
-                }
-                _ => {
-                    state = ScriptData;
-                    continue;
-                }
-            },
-            ScriptDataEscaped => match chars[idx] {
-                '-' => {
-                    state = ScriptDataEscapedDash;
-                    tokens.push(new_character_string('-'));
-                }
-                '<' => state = ScriptDataEscapedLessThan,
-                '\u{0000}' => tokens.push(new_character_string('\u{FFFD}')),
-                _ => tokens.push(new_character_string(chars[idx])),
-            },
-            ScriptDataEscapedDash => match chars[idx] {
-                '-' => {
-                    state = ScriptDataEscapedDashDash;
-                    tokens.push(new_character_string('-'));
-                }
-                '<' => state = ScriptDataEscapedLessThan,
-                '\u{0000}' => {
-                    state = ScriptDataEscaped;
-                    tokens.push(new_character_string('\u{FFFD}'));
-                }
-                _ => {
-                    state = ScriptDataEscaped;
-                    tokens.push(new_character_string(chars[idx]));
-                }
-            },
-            ScriptDataEscapedDashDash => match chars[idx] {
-                '-' => tokens.push(new_character_string('-')),
-                '<' => state = ScriptDataEscapedLessThan,
-                '>' => {
-                    state = ScriptData;
-                    tokens.push(new_character_string('>'));
-                }
-                '\u{0000}' => {
-                    state = ScriptDataEscaped;
-                    tokens.push(new_character_string('\u{FFFD}'));
-                }
-                _ => {
-                    state = ScriptDataEscaped;
-                    tokens.push(new_character_string(chars[idx]));
-                }
-            },
-            ScriptDataEscapedLessThan => match chars[idx] {
-                '/' => {
-                    temp_buffer = String::new();
-                    state = ScriptDataEscapedEndTagOpen;
-                }
-                _ => {
-                    if chars[idx].is_alphabetic() {
-                        temp_buffer = String::new();
-                        tokens.push(new_character_string('<'));
-                        state = ScriptDataDoubleEscapeStart;
-                        continue;
-                    } else {
-                        tokens.push(new_character_string('<'));
-                        state = ScriptDataEscaped;
-                        continue;
-                    }
-                }
-            },
-            ScriptDataEscapedEndTagOpen => {
-                if chars[idx].is_alphabetic() {
-                    cur_token = HtmlToken::new(TokenTag::EndTag);
-                    state = ScriptDataEscapedEndTagName;
-                    continue;
-                } else {
-                    tokens.push(new_character_string('<'));
-                    tokens.push(new_character_string('/'));
-                    state = ScriptDataEscaped;
-                    continue;
-                }
-            }
-            ScriptDataEscapedEndTagName => {
-                let mut acted = false;
-                match open_tag_stack.last() {
-                    Some(val) => {
-                        if *val == cur_token.data {
-                            match chars[idx] {
-                                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
-                                    state = BeforeAttributeName;
-                                    acted = true;
-                                }
-                                '/' => {
-                                    state = SelfClosingStartTag;
-                                    acted = true;
-                                }
-                                '>' => {
-                                    state = Data;
-                                    acted = true;
-                                }
-                                _ => {}
-                            }
-                            if acted {
-                                open_tag_stack.pop();
-                            }
-                        }
-                    }
-                    None => {}
-                }
-                if chars[idx].is_alphabetic() {
-                    cur_token.data_append(chars[idx].to_lowercase().next().unwrap());
-                    temp_buffer.push(chars[idx]);
-                    acted = true;
-                }
-
-                if !acted {
-                    tokens.push(new_character_string('<'));
-                    tokens.push(new_character_string('/'));
-                    temp_buffer
-                        .chars()
-                        .for_each(|c| tokens.push(new_character_string(c)));
-                    state = ScriptDataEscaped;
-                    continue;
-                }
-            }
-            ScriptDataDoubleEscapeStart => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' | '/' | '>' => {
-                    if temp_buffer == "script" {
-                        state = ScriptDataDoubleEscaped;
-                    } else {
-                        state = ScriptDataEscaped;
-                    }
-                    tokens.push(new_character_string(chars[idx]));
-                }
-                _ => {
-                    if chars[idx].is_alphabetic() {
-                        temp_buffer.push(chars[idx].to_lowercase().next().unwrap());
-                        tokens.push(new_character_string(chars[idx]));
-                    } else {
-                        state = ScriptDataEscaped;
-                        continue;
-                    }
-                }
-            },
-            ScriptDataDoubleEscaped => match chars[idx] {
-                '-' => {
-                    state = ScriptDataDoubleEscapedDash;
-                    tokens.push(new_character_string('-'));
-                }
-                '<' => {
-                    state = ScriptDataDoubleEscapedLessThan;
-                    tokens.push(new_character_string('<'));
-                }
-                '\u{0000}' => tokens.push(new_character_string('\u{FFFD}')),
-                _ => tokens.push(new_character_string(chars[idx])),
-            },
-            ScriptDataDoubleEscapedDash => match chars[idx] {
-                '-' => {
-                    state = ScriptDataDoubleEscapedDashDash;
-                    tokens.push(new_character_string('-'));
-                }
-                '<' => {
-                    state = ScriptDataDoubleEscapedLessThan;
-                    tokens.push(new_character_string('<'));
-                }
-                '\u{0000}' => {
-                    state = ScriptDataDoubleEscaped;
-                    tokens.push(new_character_string('\u{FFFD}'));
-                }
-                _ => {
-                    state = ScriptDataDoubleEscaped;
-                    tokens.push(new_character_string(chars[idx]));
-                }
-            },
-            ScriptDataDoubleEscapedDashDash => match chars[idx] {
-                '-' => tokens.push(new_character_string('-')),
-                '<' => {
-                    state = ScriptDataDoubleEscapedLessThan;
-                    tokens.push(new_character_string('<'));
-                }
-                '>' => {
-                    state = ScriptData;
-                    tokens.push(new_character_string('>'));
-                }
-                '\u{0000}' => {
-                    state = ScriptDataDoubleEscaped;
-                    tokens.push(new_character_string('\u{FFFD}'));
-                }
-                _ => {
-                    state = ScriptDataDoubleEscaped;
-                    tokens.push(new_character_string(chars[idx]));
-                }
-            },
-            ScriptDataDoubleEscapedLessThan => match chars[idx] {
-                '/' => {
-                    temp_buffer = String::new();
-                    state = ScriptDataDoubleEscapeEnd;
-                    tokens.push(new_character_string('/'));
-                }
-                _ => {
-                    state = ScriptDataDoubleEscaped;
-                    continue;
-                }
-            },
-            ScriptDataDoubleEscapeEnd => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' | '/' | '>' => {
-                    if temp_buffer == "script" {
-                        state = ScriptDataEscaped;
-                    } else {
-                        state = ScriptDataDoubleEscaped;
-                    }
-                    tokens.push(new_character_string(chars[idx]));
-                }
-                _ => {
-                    if chars[idx].is_alphabetic() {
-                        temp_buffer.push(chars[idx].to_lowercase().next().unwrap());
-                        tokens.push(new_character_string(chars[idx]));
-                    } else {
-                        state = ScriptDataDoubleEscaped;
-                        continue;
-                    }
-                }
-            },
-            BeforeAttributeName => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {}
-                '/' | '>' => {
-                    state = AfterAttributeName;
-                    continue;
-                }
-                '=' => {
-                    cur_token.attributes.push(HtmlAttribute::new());
-                    cur_token
-                        .attributes
-                        .last_mut()
-                        .unwrap()
-                        .name
-                        .push(chars[idx]);
-                    state = AttributeName;
-                }
-                _ => {
-                    cur_token.attributes.push(HtmlAttribute::new());
-                    state = AttributeName;
-                    continue;
-                }
-            },
-            AttributeName => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' | '/' | '>' => {
-                    state = AfterAttributeName;
-                    continue;
-                }
-                '=' => state = BeforeAttributeValue,
-                '\u{0000}' => {
-                    cur_token
-                        .attributes
-                        .last_mut()
-                        .unwrap()
-                        .name
-                        .push('\u{FFFD}');
-                }
-                // '"' | '\u{0027}' | '<' => {} // Error but treated as the anything else category
-                _ => {
-                    cur_token
-                        .attributes
-                        .last_mut()
-                        .unwrap()
-                        .name
-                        .push(chars[idx].to_lowercase().next().unwrap());
-                }
-            },
-            AfterAttributeName => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {} // Ignore
-                '/' => state = SelfClosingStartTag,
-                '=' => state = BeforeAttributeValue,
-                '>' => {
-                    state = Data;
-                    tokens.push(cur_token.clone());
-
-                    if matches!(cur_token.tag, TokenTag::StartTag) {
-                        open_tag_stack.push(cur_token.data.clone());
-                    }
-                }
-                _ => {
-                    cur_token.attributes.push(HtmlAttribute::new());
-                    state = AttributeName;
-                    continue;
-                }
-            },
-            BeforeAttributeValue => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {} // Ignore
-                '"' => state = AttributeValueDoubleQuoted,
-                '\u{0027}' => state = AttributeValueSingleQuoted,
-                '>' => {
-                    state = Data;
-                    tokens.push(cur_token.clone());
-
-                    if matches!(cur_token.tag, TokenTag::StartTag) {
-                        open_tag_stack.push(cur_token.data.clone());
-                    }
-                }
-                _ => {
-                    state = AttributeValueUnquoted;
-                    continue;
-                }
-            },
-            AttributeValueDoubleQuoted => match chars[idx] {
-                '"' => state = AfterAttributeValueQuoted,
-                '&' => {
-                    return_state = AttributeValueDoubleQuoted;
-                    state = CharacterReference;
-                }
-                '\u{0000}' => {
-                    cur_token
-                        .attributes
-                        .last_mut()
-                        .unwrap()
-                        .value
-                        .push('\u{FFFD}');
-                }
-                _ => {
-                    cur_token
-                        .attributes
-                        .last_mut()
-                        .unwrap()
-                        .value
-                        .push(chars[idx].to_lowercase().next().unwrap());
-                }
-            },
-            AttributeValueSingleQuoted => match chars[idx] {
-                '\u{0027}' => state = AfterAttributeValueQuoted,
-                '&' => {
-                    return_state = AttributeValueDoubleQuoted;
-                    state = CharacterReference;
-                }
-                '\u{0000}' => {
-                    cur_token
-                        .attributes
-                        .last_mut()
-                        .unwrap()
-                        .value
-                        .push('\u{FFFD}');
-                }
-                _ => {
-                    cur_token
-                        .attributes
-                        .last_mut()
-                        .unwrap()
-                        .value
-                        .push(chars[idx].to_lowercase().next().unwrap());
-                }
-            },
-            AttributeValueUnquoted => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => state = BeforeAttributeName,
-                '&' => {
-                    return_state = AttributeValueUnquoted;
-                    state = CharacterReference;
-                }
-                '>' => {
-                    state = Data;
-                    tokens.push(cur_token.clone());
-
-                    if matches!(cur_token.tag, TokenTag::StartTag) {
-                        open_tag_stack.push(cur_token.data.clone());
-                    }
-                }
-                '\u{0000}' => {
-                    cur_token
-                        .attributes
-                        .last_mut()
-                        .unwrap()
-                        .value
-                        .push('\u{FFFD}');
-                }
-                // '"' | '\u{0027}' | '<' | '=' | '`' => {} // Error, treat as anything else
-                _ => {
-                    cur_token
-                        .attributes
-                        .last_mut()
-                        .unwrap()
-                        .value
-                        .push(chars[idx].to_lowercase().next().unwrap());
-                }
-            },
-            AfterAttributeValueQuoted => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => state = BeforeAttributeName,
-                '/' => state = SelfClosingStartTag,
-                '>' => {
-                    state = Data;
-                    tokens.push(cur_token.clone());
-
-                    if matches!(cur_token.tag, TokenTag::StartTag) {
-                        open_tag_stack.push(cur_token.data.clone());
-                    }
-                }
-                _ => {
-                    state = BeforeAttributeName;
-                    continue;
-                }
-            },
-            SelfClosingStartTag => match chars[idx] {
-                '>' => {
-                    cur_token.flags.self_closing = true;
-                    state = Data;
-
-                    tokens.push(cur_token.clone());
-                }
-                _ => {
-                    state = BeforeAttributeName;
-                    continue;
-                }
-            },
-            BogusComment => match chars[idx] {
-                '>' => {
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                '\u{0000}' => {
-                    cur_token.data.push('\u{FFFD}');
-                }
-                _ => {
-                    cur_token.data.push(chars[idx]);
-                }
-            },
-            MarkupDeclarationOpen => {
-                if idx + 1 < chars.len() && compare_slices(&chars[idx..idx + 2], &['-', '-'], true)
-                {
-                    idx += 2;
-                    cur_token = HtmlToken::new(TokenTag::Comment);
-                    state = CommentStart;
-
-                    continue;
-                }
-                if idx + 7 < chars.len()
-                    && compare_slices(
-                        &chars[idx..idx + 8],
-                        &['d', 'o', 'c', 't', 'y', 'p', 'e'],
-                        false,
-                    )
-                {
-                    idx += 8;
-                    state = Doctype;
-                    continue;
-                }
-                if idx + 7 < chars.len()
-                    && compare_slices(
-                        &chars[idx..idx + 8],
-                        &['[', 'C', 'D', 'A', 'T', 'a', '['],
-                        true,
-                    )
-                {
-                    idx += 8;
-                    // TODO: Check if there is an adjusted current node
-                    //       and it's not an element in HTML namespace.
-                    //       If not, create a comment instead
-                    state = CDataSection;
-                    continue;
-                }
-
-                cur_token = HtmlToken::new(TokenTag::Comment);
-                state = BogusComment;
-                continue;
-            }
-            CommentStart => match chars[idx] {
-                '-' => state = CommentStartDash,
-                '>' => {
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                _ => {
-                    state = Comment;
-                    continue;
-                }
-            },
-            CommentStartDash => match chars[idx] {
-                '-' => state = CommentEnd,
-                '>' => {
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                _ => {
-                    cur_token.data_append('-');
-                    state = Comment;
-                    continue;
-                }
-            },
-            Comment => match chars[idx] {
-                '<' => {
-                    cur_token.data_append('<');
-                    state = CommentLessThan;
-                }
-                '-' => state = CommentEndDash,
-                '\u{0000}' => cur_token.data_append('\u{FFFD}'),
-                _ => cur_token.data_append(chars[idx]),
-            },
-            CommentLessThan => match chars[idx] {
-                '!' => {
-                    cur_token.data_append('!');
-                    state = CommentLessThanBang;
-                }
-                '<' => cur_token.data_append('<'),
-                _ => {
-                    state = Comment;
-                    continue;
-                }
-            },
-            CommentLessThanBang => match chars[idx] {
-                '-' => state = CommentLessThanBangDash,
-                _ => {
-                    state = Comment;
-                    continue;
-                }
-            },
-            CommentLessThanBangDash => match chars[idx] {
-                '-' => state = CommentLessThanBangDashDash,
-                _ => {
-                    state = Comment;
-                    continue;
-                }
-            },
-            CommentLessThanBangDashDash => {
-                state = CommentEnd;
-                continue;
-            }
-            CommentEndDash => match chars[idx] {
-                '-' => state = CommentEnd,
-                _ => {
-                    cur_token.data_append('-');
-                    state = Comment;
-                    continue;
-                }
-            },
-            CommentEnd => match chars[idx] {
-                '>' => {
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                '!' => state = CommentEndBang,
-                '-' => cur_token.data_append('-'),
-                _ => {
-                    cur_token.data_append('-');
-                    state = Comment;
-                    continue;
-                }
-            },
-            CommentEndBang => match chars[idx] {
-                '-' => {
-                    cur_token.data_append('-');
-                    cur_token.data_append('!');
-                    state = CommentEndDash;
-                }
-                '>' => {
-                    state = Data;
-                    tokens.push(cur_token.clone())
-                }
-                _ => {
-                    cur_token.data_append('-');
-                    cur_token.data_append('!');
-                    state = Comment;
-                    continue;
-                }
-            },
-            Doctype => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => state = BeforeDoctypeName,
-                _ => {
-                    state = BeforeDoctypeName;
-                    continue;
-                }
-            },
-            BeforeDoctypeName => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {}
-                '\u{0000}' => {
-                    cur_token = HtmlToken::new(TokenTag::Doctype(DoctypeData::new()));
-                    cur_token.data_append('\u{FFFD}');
-                    state = DoctypeName;
-                }
-                '>' => {
-                    cur_token = HtmlToken::new(TokenTag::Doctype(DoctypeData::new()));
-                    cur_token.flags.force_quirks = true;
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                _ => {
-                    cur_token = HtmlToken::new(TokenTag::Doctype(DoctypeData::new()));
-                    cur_token.data_append(chars[idx].to_lowercase().next().unwrap());
-                    state = DoctypeName;
-                }
-            },
-            DoctypeName => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => state = AfterDoctype,
-                '>' => {
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                '\u{0000}' => cur_token.data_append('\u{FFFD}'),
-                _ => cur_token.data_append(chars[idx].to_lowercase().next().unwrap()),
-            },
-            AfterDoctypeName => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {}
-                '>' => {
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                _ => {
-                    if idx + 6 < chars.len()
-                        && compare_slices(
-                            &chars[idx..idx + 7],
-                            &['p', 'u', 'b', 'l', 'i', 'c'],
-                            false,
-                        )
-                    {
-                        idx += 7;
-                        state = AfterDoctypePublicKeyword;
-                        continue;
-                    }
-                    if idx + 6 < chars.len()
-                        && compare_slices(
-                            &chars[idx..idx + 7],
-                            &['s', 'y', 's', 't', 'e', 'm'],
-                            false,
-                        )
-                    {
-                        idx += 7;
-                        continue;
-                    }
-
-                    cur_token.flags.force_quirks = true;
-                    state = BogusComment;
-                    continue;
-                }
-            },
-            AfterDoctypePublicKeyword => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
-                    state = BeforeDoctypePublicIndentifier;
-                }
-                '"' => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        val.public_identifier = Some(String::new());
-                        state = DoctypePublicIdentifierDoubleQuote;
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-                '\u{0027}' => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        val.public_identifier = Some(String::new());
-                        state = DoctypePublicIdentifierSingleQuote;
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-                '>' => {
-                    cur_token.flags.force_quirks = true;
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                _ => {
-                    cur_token.flags.force_quirks = true;
-                    state = BogusDoctype;
-                    continue;
-                }
-            },
-            BeforeDoctypePublicIndentifier => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {} // Ignore
-                '"' => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        val.public_identifier = Some(String::new());
-                        state = DoctypePublicIdentifierDoubleQuote;
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-                '\u{0027}' => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        val.public_identifier = Some(String::new());
-                        state = DoctypePublicIdentifierSingleQuote;
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-                '>' => {
-                    cur_token.flags.force_quirks = true;
-                    state = Data;
-                    tokens.push(cur_token.clone())
-                }
-                _ => {
-                    cur_token.flags.force_quirks = true;
-                    state = BogusDoctype;
-                    continue;
-                }
-            },
-            DoctypePublicIdentifierDoubleQuote => match chars[idx] {
-                '"' => state = AfterDoctypePublicIdentifier,
-                '\u{0000}' => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        match val.public_identifier {
-                            Some(ref mut s) => {
-                                s.push('\u{FFFD}');
-                            }
-                            None => {
-                                // TODO: Correct with error handling
-                                panic!("In DoctypePublicIdentifierDoubleQuote without public identifier created");
-                            }
-                        }
-                        state = DoctypePublicIdentifierDoubleQuote;
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-                '>' => {
-                    cur_token.flags.force_quirks = true;
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                _ => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        match val.public_identifier {
-                            Some(ref mut s) => {
-                                s.push(chars[idx]);
-                            }
-                            None => {
-                                // TODO: Correct with error handling
-                                panic!("In DoctypePublicIdentifierDoubleQuote without public identifier created");
-                            }
-                        }
-                        state = DoctypePublicIdentifierDoubleQuote;
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-            },
-            DoctypePublicIdentifierSingleQuote => match chars[idx] {
-                '\u{0027}' => state = AfterDoctypePublicIdentifier,
-                '\u{0000}' => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        match val.public_identifier {
-                            Some(ref mut s) => {
-                                s.push('\u{FFFD}');
-                            }
-                            None => {
-                                // TODO: Correct with error handling
-                                panic!("In DoctypePublicIdentifierSingleQuote without public identifier created");
-                            }
-                        }
-                        state = DoctypePublicIdentifierDoubleQuote;
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-                '>' => {
-                    cur_token.flags.force_quirks = true;
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                _ => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        match val.public_identifier {
-                            Some(ref mut s) => {
-                                s.push(chars[idx]);
-                            }
-                            None => {
-                                // TODO: Correct with error handling
-                                panic!("In DoctypePublicIdentifierSingleQuote without public identifier created");
-                            }
-                        }
-                        state = DoctypePublicIdentifierDoubleQuote;
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-            },
-            AfterDoctypePublicIdentifier => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
-                    state = BetweenDoctypePublicAndSystemIdentifiers;
-                }
-                '>' => {
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                '"' => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        val.system = Some(String::new());
-                        state = DoctypeSystemIdentifierDoubleQuote;
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-                '\u{0027}' => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        val.system = Some(String::new());
-                        state = DoctypeSystemIdentifierSingleQuote;
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-                _ => {
-                    cur_token.flags.force_quirks = true;
-                    state = BogusDoctype;
-                    continue;
-                }
-            },
-            BetweenDoctypePublicAndSystemIdentifiers => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {}
-                '>' => {
-                    state = Data;
-                    tokens.push(cur_token.clone())
-                }
-                '"' => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        val.system = Some(String::new());
-                        state = DoctypeSystemIdentifierDoubleQuote;
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-                '\u{0027}' => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        val.system = Some(String::new());
-                        state = DoctypeSystemIdentifierSingleQuote;
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-                _ => {
-                    cur_token.flags.force_quirks = true;
-                    state = BogusDoctype;
-                    continue;
-                }
-            },
-            AfterDoctypeSystemKeyword => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
-                    state = BeforeDoctypeSystemIdentifier;
-                }
-                '"' => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        val.system = Some(String::new());
-                        state = DoctypeSystemIdentifierDoubleQuote;
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-                '\u{0027}' => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        val.system = Some(String::new());
-                        state = DoctypeSystemIdentifierSingleQuote;
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-                '>' => {
-                    cur_token.flags.force_quirks = true;
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                _ => {
-                    cur_token.flags.force_quirks = true;
-                    state = BogusDoctype;
-                    continue;
-                }
-            },
-            BeforeDoctypeSystemIdentifier => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {}
-                '"' => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        val.system = Some(String::new());
-                        state = DoctypeSystemIdentifierDoubleQuote;
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-                '\u{0027}' => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        val.system = Some(String::new());
-                        state = DoctypeSystemIdentifierSingleQuote;
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-                '>' => {
-                    cur_token.flags.force_quirks = true;
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                _ => {
-                    cur_token.flags.force_quirks = true;
-                    state = BogusDoctype;
-                    continue;
-                }
-            },
-            DoctypeSystemIdentifierDoubleQuote => match chars[idx] {
-                '"' => state = AfterDoctypeSystemIdentifier,
-                '\u{0000}' => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        match val.system {
-                            Some(ref mut s) => s.push('\u{FFFD}'),
-                            None => panic!("In DoctypeSystemIdentifier without system set"),
-                        };
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-                '>' => {
-                    cur_token.flags.force_quirks = true;
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                _ => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        match val.system {
-                            Some(ref mut s) => s.push(chars[idx]),
-                            None => panic!("In DoctypeSystemIdentifier without system set"),
-                        };
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-            },
-            DoctypeSystemIdentifierSingleQuote => match chars[idx] {
-                '\u{0027}' => state = AfterDoctypeSystemIdentifier,
-                '\u{0000}' => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        match val.system {
-                            Some(ref mut s) => s.push('\u{FFFD}'),
-                            None => panic!("In DoctypeSystemIdentifier without system set"),
-                        };
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-                '>' => {
-                    cur_token.flags.force_quirks = true;
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                _ => match cur_token.tag {
-                    TokenTag::Doctype(ref mut val) => {
-                        match val.system {
-                            Some(ref mut s) => s.push(chars[idx]),
-                            None => panic!("In DoctypeSystemIdentifier without system set"),
-                        };
-                    }
-                    _ => {
-                        // TODO: This is fine as a panic for now,
-                        //       but we need better error handling
-                        panic!("HTML Tokenizer ")
-                    }
-                },
-            },
-            AfterDoctypeSystemIdentifier => match chars[idx] {
-                '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {}
-                '>' => {
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                _ => {
-                    state = BogusDoctype;
-                    continue;
-                }
-            },
-            BogusDoctype => match chars[idx] {
-                '>' => {
-                    state = Data;
-                    tokens.push(cur_token.clone());
-                }
-                _ => {}
-            },
-            CDataSection => match chars[idx] {
-                ']' => state = CDataSectionBracket,
-                _ => tokens.push(new_character_string(chars[idx])),
-            },
-            CDataSectionBracket => match chars[idx] {
-                ']' => state = CDataSectionEnd,
-                _ => {
-                    tokens.push(new_character_string(']'));
-                    state = CDataSection;
-                    continue;
-                }
-            },
-            CDataSectionEnd => match chars[idx] {
-                ']' => tokens.push(new_character_string(']')),
-                '>' => state = Data,
-                _ => {
-                    tokens.push(new_character_string(']'));
-                    tokens.push(new_character_string(']'));
-                    state = CDataSection;
-                    continue;
-                }
-            },
-            CharacterReference => {
-                temp_buffer = "&".to_string();
-                match chars[idx] {
-                    '#' => {
-                        temp_buffer.push(chars[idx]);
-                        state = NumericCharacterReference;
-                    }
-                    _ => {
-                        if chars[idx].is_alphanumeric() {
-                            state = NamedCharacterReference;
-                            continue;
-                        } else {
-                            if is_part_of_attribute(return_state) {
-                                temp_buffer
-                                    .chars()
-                                    .for_each(|c| cur_token.append_to_last_attribute(c));
-                            } else {
-                                temp_buffer
-                                    .chars()
-                                    .for_each(|c| tokens.push(new_character_string(c)));
-                            }
-
-                            state = return_state;
-                            continue;
-                        }
-                    }
-                }
-            }
-            // NamedCharacterReference => {}
-            AmbiguousAmpersand => {
-                if chars[idx].is_alphanumeric() {
-                    if is_part_of_attribute(return_state) {
-                        cur_token.append_to_last_attribute(chars[idx]);
-                    } else {
-                        tokens.push(new_character_string(chars[idx]));
-                    }
-                } else {
-                    state = return_state;
-                    continue;
-                }
-            }
-            NumericCharacterReference => {
-                character_reference_code = 0;
-                match chars[idx] {
-                    'x' | 'X' => {
-                        temp_buffer.push(chars[idx]);
-                        state = HexadecimalCharacterReferenceStart;
-                    }
-                    _ => {
-                        state = DecimalCharacterReferenceStart;
-                        continue;
-                    }
-                }
-            }
-            HexadecimalCharacterReferenceStart => match chars[idx] {
-                '0'..='9' | 'A'..='F' | 'a'..='f' => {
-                    state = HexadecimalCharacterReference;
-                    continue;
-                }
-                _ => {
-                    if is_part_of_attribute(return_state) {
-                        temp_buffer
-                            .chars()
-                            .for_each(|c| cur_token.append_to_last_attribute(c));
-                    } else {
-                        temp_buffer
-                            .chars()
-                            .for_each(|c| tokens.push(new_character_string(c)));
-                    }
-                    state = return_state;
-                    continue;
-                }
-            },
-            DecimalCharacterReferenceStart => match chars[idx] {
-                '0'..='9' => {
-                    state = DecimalCharacterReference;
-                    continue;
-                }
-                _ => {
-                    if is_part_of_attribute(return_state) {
-                        temp_buffer
-                            .chars()
-                            .for_each(|c| cur_token.append_to_last_attribute(c));
-                    } else {
-                        temp_buffer
-                            .chars()
-                            .for_each(|c| tokens.push(new_character_string(c)));
-                    }
-                    state = return_state;
-                    continue;
-                }
-            },
-            HexadecimalCharacterReference => match chars[idx] {
-                '0'..='9' | 'A'..='F' | 'a'..='f' => {
-                    character_reference_code *= 16;
-                    character_reference_code += chars[idx].to_digit(16).unwrap();
-                }
-                ';' => state = NumericCharacterReferenceEnd,
-                _ => {
-                    state = NumericCharacterReferenceEnd;
-                    continue;
-                }
-            },
-            DecimalCharacterReference => match chars[idx] {
-                '0'..='9' => {
-                    character_reference_code *= 16;
-                    character_reference_code += chars[idx].to_digit(10).unwrap();
-                }
-                ';' => state = NumericCharacterReferenceEnd,
-                _ => {
-                    state = NumericCharacterReferenceEnd;
-                    continue;
-                }
-            },
-            NumericCharacterReferenceEnd => {
-                match character_reference_code {
-                    // Null check
-                    0x00 |
-                    // Surrogate check
-                    0xD800..=0xDBFF | 0xDC00..=0xDFFF | 0x10FFFF.. => {
-                        character_reference_code = 0xFFFD;
-                    }
-                    // // NonCharacter Check
-                    // 0xFDD0..=0xFDEF
-                    // | 0xFFFE
-                    // | 0xFFFF
-                    // | 0x1FFFE
-                    // | 0x1FFFF
-                    // | 0x2FFFF
-                    // | 0x3FFFE
-                    // | 0x3FFFF
-                    // | 0x4FFFE
-                    // | 0x4FFFF
-                    // | 0x5FFFE
-                    // | 0x5FFFF
-                    // | 0x6FFFE
-                    // | 0x6FFFF
-                    // | 0x7FFFE
-                    // | 0x7FFFF
-                    // | 0x8FFFE
-                    // | 0x8FFFF
-                    // | 0x9FFFE
-                    // | 0x9FFFF
-                    // | 0xAFFFE
-                    // | 0xAFFFF
-                    // | 0xBFFFE
-                    // | 0xBFFFF
-                    // | 0xCFFFE
-                    // | 0xCFFFF
-                    // | 0xDFFFE
-                    // | 0xDFFFF
-                    // | 0xEFFFE
-                    // | 0xEFFFF
-                    // | 0xFFFFE
-                    // | 0xFFFFF
-                    // | 0x10FFFE => {}
-                    // // Control Character Check
-                    // 0x0001..0x0020 | 0x007f..=0x009f => {}
-                    _ => {
-                        character_reference_code =
-                            lookup_character_reference(character_reference_code);
-                    }
-                };
-                temp_buffer = String::new();
-                // This cast should probably be error checked
-                temp_buffer.push(character_reference_code as u8 as char);
-                if is_part_of_attribute(return_state) {
-                    temp_buffer
-                        .chars()
-                        .for_each(|c| cur_token.append_to_last_attribute(c));
-                } else {
-                    temp_buffer
-                        .chars()
-                        .for_each(|c| tokens.push(new_character_string(c)));
-                }
-
-                state = return_state;
-            }
-            _ => {
-                println!("Unsupported tag found");
-            }
-        };
-        idx += 1;
+impl Tokenizer {
+    pub fn init(html_string: &str) -> Tokenizer {
+        Tokenizer {
+            idx: 0,
+            chars: html_string.chars().collect(),
+            state: FsmState::Data,
+            return_state: FsmState::Data,
+            cur_token: HtmlToken::new(TokenTag::EoF),
+            token_buffer: VecDeque::new(),
+            temp_buffer: String::new(),
+            open_tag_stack: Vec::new(),
+            character_reference_code: 0,
+        }
     }
 
-    tokens
+    pub fn get_next_token(&mut self) -> HtmlToken {
+        match self.token_buffer.pop_front() {
+            Some(val) => val,
+            None => {
+                self.next_token_iteration();
+                match self.token_buffer.pop_front() {
+                    Some(val) => val,
+                    None => self.get_eof_token(),
+                }
+            }
+        }
+    }
+
+    pub fn push_open_tag(&mut self, tag_name: String) {
+        self.open_tag_stack.push(tag_name);
+    }
+
+    pub fn pop_open_tag(&mut self) {
+        self.open_tag_stack.pop();
+    }
+
+    pub fn is_open_tag_stack_empty(&mut self) -> bool {
+        self.open_tag_stack.is_empty()
+    }
+
+    pub fn set_state(&mut self, state: FsmState) {
+        self.state = state;
+    }
+
+    fn next_token_iteration(&mut self) {
+        use FsmState::*;
+
+        let mut temp_buf = self.temp_buffer.clone();
+
+        while self.idx < self.chars.len() {
+            match self.state {
+                Data => match self.chars[self.idx] {
+                    '&' => {
+                        self.return_state = Data;
+                        self.state = CharacterReference;
+                    }
+                    '<' => self.state = TagOpen,
+                    _ => {
+                        emit_token!(self, new_character_string(self.chars[self.idx]));
+                    }
+                },
+                RCData => match self.chars[self.idx] {
+                    '&' => {
+                        self.return_state = RCData;
+                        self.state = CharacterReference;
+                    }
+                    '<' => self.state = RCDataLessThan,
+                    '\u{0000}' => {
+                        emit_token!(self, new_character_string('\u{FFFD}'));
+                    }
+                    _ => {
+                        emit_token!(self, new_character_string(self.chars[self.idx]));
+                    }
+                },
+                RawText => match self.chars[self.idx] {
+                    '<' => self.state = RawTextLessThan,
+                    '\u{0000}' => {
+                        emit_token!(self, new_character_string('\u{FFFD}'));
+                    }
+                    _ => {
+                        emit_token!(self, new_character_string(self.chars[self.idx]));
+                    }
+                },
+                ScriptData => match self.chars[self.idx] {
+                    '<' => self.state = ScriptDataLessThan,
+                    '\u{0000}' => {
+                        emit_token!(self, new_character_string('\u{FFFD}'));
+                    }
+                    _ => {
+                        emit_token!(self, new_character_string(self.chars[self.idx]));
+                    }
+                },
+                Plaintext => match self.chars[self.idx] {
+                    '\u{0000}' => {
+                        emit_token!(self, new_character_string('\u{FFFD}'));
+                    }
+                    _ => {
+                        emit_token!(self, new_character_string(self.chars[self.idx]));
+                    }
+                },
+                TagOpen => match self.chars[self.idx] {
+                    '!' => self.state = MarkupDeclarationOpen,
+                    '/' => self.state = EndTagOpen,
+                    '?' => {
+                        self.cur_token = HtmlToken::new(TokenTag::Comment);
+                        self.state = BogusComment;
+                        return;
+                    }
+                    _ => {
+                        if self.chars[self.idx].is_alphabetic() {
+                            self.cur_token = HtmlToken::new(TokenTag::StartTag);
+                            self.state = TagName;
+                            return;
+                        } else {
+                            emit_token_no_return!(self, new_character_string('<'));
+                            self.state = Data;
+                            return;
+                        }
+                    }
+                },
+                EndTagOpen => match self.chars[self.idx] {
+                    '>' => self.state = Data,
+                    _ => {
+                        if self.chars[self.idx].is_alphabetic() {
+                            self.cur_token = HtmlToken::new(TokenTag::EndTag);
+                            self.state = TagName;
+                            return;
+                        } else {
+                            self.cur_token = HtmlToken::new(TokenTag::Comment);
+                            self.state = BogusComment;
+                            return;
+                        }
+                    }
+                },
+                TagName => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
+                        self.state = BeforeAttributeName
+                    }
+                    '/' => self.state = SelfClosingStartTag,
+                    '>' => {
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    '\u{0000}' => self.cur_token.data_append('\u{FFFD}'),
+                    _ => self
+                        .cur_token
+                        .data_append(self.chars[self.idx].to_lowercase().next().unwrap()),
+                },
+                RCDataLessThan => match self.chars[self.idx] {
+                    '/' => {
+                        temp_buf = String::new();
+                        self.temp_buffer = String::new();
+                        self.state = RCDataEndTagOpen;
+                    }
+                    _ => {
+                        emit_token_no_return!(self, new_character_string('<'));
+                        self.state = RCData;
+                        return;
+                    }
+                },
+                RCDataEndTagOpen => {
+                    if self.chars[self.idx].is_alphabetic() {
+                        self.cur_token = HtmlToken::new(TokenTag::EndTag);
+                        self.state = RCDataEndTagName;
+                        return;
+                    } else {
+                        emit_token_no_return!(self, new_character_string('<'));
+                        emit_token_no_return!(self, new_character_string('/'));
+                        self.state = RCData;
+                        return;
+                    }
+                }
+                RCDataEndTagName => {
+                    let mut acted = false;
+                    match self.open_tag_stack.last() {
+                        Some(val) => {
+                            if *val == self.cur_token.data {
+                                match self.chars[self.idx] {
+                                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
+                                        self.state = BeforeAttributeName;
+                                        acted = true;
+                                    }
+                                    '/' => {
+                                        self.state = SelfClosingStartTag;
+                                        acted = true;
+                                    }
+                                    '>' => {
+                                        self.state = Data;
+                                        acted = true;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        None => {}
+                    }
+                    if self.chars[self.idx].is_alphabetic() {
+                        self.cur_token
+                            .data_append(self.chars[self.idx].to_lowercase().next().unwrap());
+                        temp_buf.push(self.chars[self.idx]);
+                        self.temp_buffer.push(self.chars[self.idx]);
+                        acted = true;
+                    }
+
+                    if !acted {
+                        emit_token_no_return!(self, new_character_string('<'));
+                        emit_token_no_return!(self, new_character_string('/'));
+                        temp_buf.chars().for_each(|c| {
+                            emit_token_no_return!(self, new_character_string(c));
+                        });
+                        self.state = RCData;
+                        return;
+                    }
+                }
+                RawTextLessThan => match self.chars[self.idx] {
+                    '/' => {
+                        temp_buf = String::new();
+                        self.temp_buffer = String::new();
+                        self.state = RawTextEndTagOpen;
+                    }
+                    _ => {
+                        emit_token_no_return!(self, new_character_string('<'));
+                        self.state = RawText;
+                        return;
+                    }
+                },
+                RawTextEndTagOpen => {
+                    if self.chars[self.idx].is_alphabetic() {
+                        self.cur_token = HtmlToken::new(TokenTag::EndTag);
+                        self.state = RawTextEndTagName;
+                        return;
+                    } else {
+                        emit_token_no_return!(self, new_character_string('<'));
+                        emit_token_no_return!(self, new_character_string('/'));
+                        self.state = RawText;
+                        return;
+                    }
+                }
+                RawTextEndTagName => {
+                    let mut acted = false;
+                    match self.open_tag_stack.last() {
+                        Some(val) => {
+                            if *val == self.cur_token.data {
+                                match self.chars[self.idx] {
+                                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
+                                        self.state = BeforeAttributeName;
+                                        acted = true;
+                                    }
+                                    '/' => {
+                                        self.state = SelfClosingStartTag;
+                                        acted = true;
+                                    }
+                                    '>' => {
+                                        self.state = Data;
+                                        acted = true;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        None => {}
+                    }
+                    if self.chars[self.idx].is_alphabetic() {
+                        self.cur_token
+                            .data_append(self.chars[self.idx].to_lowercase().next().unwrap());
+                        temp_buf.push(self.chars[self.idx]);
+                        self.temp_buffer.push(self.chars[self.idx]);
+                        acted = true;
+                    }
+
+                    if !acted {
+                        emit_token_no_return!(self, new_character_string('<'));
+                        emit_token_no_return!(self, new_character_string('/'));
+                        temp_buf.chars().for_each(|c| {
+                            emit_token_no_return!(self, new_character_string(c));
+                        });
+                        self.state = RawText;
+                        return;
+                    }
+                }
+                ScriptDataLessThan => match self.chars[self.idx] {
+                    '/' => {
+                        temp_buf = String::new();
+                        self.temp_buffer = String::new();
+                        self.state = ScriptDataEndTagOpen;
+                    }
+                    '!' => {
+                        self.state = ScriptDataEscapeStart;
+                        emit_token_no_return!(self, new_character_string('<'));
+                        emit_token_no_return!(self, new_character_string('!'));
+                        return;
+                    }
+                    _ => {
+                        emit_token_no_return!(self, new_character_string('<'));
+                        self.state = ScriptData;
+                        return;
+                    }
+                },
+                ScriptDataEndTagOpen => {
+                    if self.chars[self.idx].is_alphabetic() {
+                        self.cur_token = HtmlToken::new(TokenTag::EndTag);
+                        self.state = ScriptDataEndTagName;
+                        return;
+                    } else {
+                        emit_token_no_return!(self, new_character_string('<'));
+                        emit_token_no_return!(self, new_character_string('/'));
+                        self.state = ScriptData;
+                        return;
+                    }
+                }
+                ScriptDataEndTagName => {
+                    let mut acted = false;
+                    match self.open_tag_stack.last() {
+                        Some(val) => {
+                            if *val == self.cur_token.data {
+                                match self.chars[self.idx] {
+                                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
+                                        self.state = BeforeAttributeName;
+                                        acted = true;
+                                    }
+                                    '/' => {
+                                        self.state = SelfClosingStartTag;
+                                        acted = true;
+                                    }
+                                    '>' => {
+                                        self.state = Data;
+                                        acted = true;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        None => {}
+                    }
+                    if self.chars[self.idx].is_alphabetic() {
+                        self.cur_token
+                            .data_append(self.chars[self.idx].to_lowercase().next().unwrap());
+                        temp_buf.push(self.chars[self.idx]);
+                        self.temp_buffer.push(self.chars[self.idx]);
+                        acted = true;
+                    }
+
+                    if !acted {
+                        emit_token_no_return!(self, new_character_string('<'));
+                        emit_token_no_return!(self, new_character_string('/'));
+                        temp_buf.chars().for_each(|c| {
+                            emit_token_no_return!(self, new_character_string(c));
+                        });
+                        self.state = ScriptData;
+                        return;
+                    }
+                }
+                ScriptDataEscapeStart => match self.chars[self.idx] {
+                    '-' => {
+                        self.state = ScriptDataEscapedDash;
+                        emit_token!(self, new_character_string('-'));
+                    }
+                    _ => {
+                        self.state = ScriptData;
+                        return;
+                    }
+                },
+                ScriptDataEscaped => match self.chars[self.idx] {
+                    '-' => {
+                        self.state = ScriptDataEscapedDash;
+                        emit_token!(self, new_character_string('-'));
+                    }
+                    '<' => self.state = ScriptDataEscapedLessThan,
+                    '\u{0000}' => {
+                        emit_token!(self, new_character_string('\u{FFFD}'));
+                    }
+                    _ => {
+                        emit_token!(self, new_character_string(self.chars[self.idx]));
+                    }
+                },
+                ScriptDataEscapedDash => match self.chars[self.idx] {
+                    '-' => {
+                        self.state = ScriptDataEscapedDashDash;
+                        emit_token!(self, new_character_string('-'));
+                    }
+                    '<' => self.state = ScriptDataEscapedLessThan,
+                    '\u{0000}' => {
+                        self.state = ScriptDataEscaped;
+                        emit_token!(self, new_character_string('\u{FFFD}'));
+                    }
+                    _ => {
+                        self.state = ScriptDataEscaped;
+                        emit_token!(self, new_character_string(self.chars[self.idx]));
+                    }
+                },
+                ScriptDataEscapedDashDash => match self.chars[self.idx] {
+                    '-' => {
+                        emit_token!(self, new_character_string('-'));
+                    }
+                    '<' => self.state = ScriptDataEscapedLessThan,
+                    '>' => {
+                        self.state = ScriptData;
+                        emit_token!(self, new_character_string('>'));
+                    }
+                    '\u{0000}' => {
+                        self.state = ScriptDataEscaped;
+                        emit_token!(self, new_character_string('\u{FFFD}'));
+                    }
+                    _ => {
+                        self.state = ScriptDataEscaped;
+                        emit_token!(self, new_character_string(self.chars[self.idx]));
+                    }
+                },
+                ScriptDataEscapedLessThan => match self.chars[self.idx] {
+                    '/' => {
+                        temp_buf = String::new();
+                        self.temp_buffer = String::new();
+                        self.state = ScriptDataEscapedEndTagOpen;
+                    }
+                    _ => {
+                        if self.chars[self.idx].is_alphabetic() {
+                            temp_buf = String::new();
+                            self.temp_buffer = String::new();
+                            emit_token_no_return!(self, new_character_string('<'));
+                            self.state = ScriptDataDoubleEscapeStart;
+                            return;
+                        } else {
+                            emit_token_no_return!(self, new_character_string('<'));
+                            self.state = ScriptDataEscaped;
+                            return;
+                        }
+                    }
+                },
+                ScriptDataEscapedEndTagOpen => {
+                    if self.chars[self.idx].is_alphabetic() {
+                        self.cur_token = HtmlToken::new(TokenTag::EndTag);
+                        self.state = ScriptDataEscapedEndTagName;
+                        return;
+                    } else {
+                        emit_token_no_return!(self, new_character_string('<'));
+                        emit_token_no_return!(self, new_character_string('/'));
+                        self.state = ScriptDataEscaped;
+                        return;
+                    }
+                }
+                ScriptDataEscapedEndTagName => {
+                    let mut acted = false;
+                    match self.open_tag_stack.last() {
+                        Some(val) => {
+                            if *val == self.cur_token.data {
+                                match self.chars[self.idx] {
+                                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
+                                        self.state = BeforeAttributeName;
+                                        acted = true;
+                                    }
+                                    '/' => {
+                                        self.state = SelfClosingStartTag;
+                                        acted = true;
+                                    }
+                                    '>' => {
+                                        self.state = Data;
+                                        acted = true;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        None => {}
+                    }
+                    if self.chars[self.idx].is_alphabetic() {
+                        self.cur_token
+                            .data_append(self.chars[self.idx].to_lowercase().next().unwrap());
+                        temp_buf.push(self.chars[self.idx]);
+                        self.temp_buffer.push(self.chars[self.idx]);
+                        acted = true;
+                    }
+
+                    if !acted {
+                        emit_token_no_return!(self, new_character_string('<'));
+                        emit_token_no_return!(self, new_character_string('/'));
+                        temp_buf.chars().for_each(|c| {
+                            emit_token_no_return!(self, new_character_string(c));
+                        });
+                        self.state = ScriptDataEscaped;
+                        return;
+                    }
+                }
+                ScriptDataDoubleEscapeStart => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' | '/' | '>' => {
+                        if temp_buf == "script" {
+                            self.state = ScriptDataDoubleEscaped;
+                        } else {
+                            self.state = ScriptDataEscaped;
+                        }
+                        emit_token!(self, new_character_string(self.chars[self.idx]));
+                    }
+                    _ => {
+                        if self.chars[self.idx].is_alphabetic() {
+                            temp_buf.push(self.chars[self.idx].to_lowercase().next().unwrap());
+                            self.temp_buffer
+                                .push(self.chars[self.idx].to_lowercase().next().unwrap());
+                            emit_token!(self, new_character_string(self.chars[self.idx]));
+                        } else {
+                            self.state = ScriptDataEscaped;
+                            return;
+                        }
+                    }
+                },
+                ScriptDataDoubleEscaped => match self.chars[self.idx] {
+                    '-' => {
+                        self.state = ScriptDataDoubleEscapedDash;
+                        emit_token!(self, new_character_string('-'));
+                    }
+                    '<' => {
+                        self.state = ScriptDataDoubleEscapedLessThan;
+                        emit_token!(self, new_character_string('<'));
+                    }
+                    '\u{0000}' => {
+                        emit_token!(self, new_character_string('\u{FFFD}'));
+                    }
+                    _ => {
+                        emit_token!(self, new_character_string(self.chars[self.idx]));
+                    }
+                },
+                ScriptDataDoubleEscapedDash => match self.chars[self.idx] {
+                    '-' => {
+                        self.state = ScriptDataDoubleEscapedDashDash;
+                        emit_token!(self, new_character_string('-'));
+                    }
+                    '<' => {
+                        self.state = ScriptDataDoubleEscapedLessThan;
+                        emit_token!(self, new_character_string('<'));
+                    }
+                    '\u{0000}' => {
+                        self.state = ScriptDataDoubleEscaped;
+                        emit_token!(self, new_character_string('\u{FFFD}'));
+                    }
+                    _ => {
+                        self.state = ScriptDataDoubleEscaped;
+                        emit_token!(self, new_character_string(self.chars[self.idx]));
+                    }
+                },
+                ScriptDataDoubleEscapedDashDash => match self.chars[self.idx] {
+                    '-' => {
+                        emit_token!(self, new_character_string('-'));
+                    }
+                    '<' => {
+                        self.state = ScriptDataDoubleEscapedLessThan;
+                        emit_token!(self, new_character_string('<'));
+                    }
+                    '>' => {
+                        self.state = ScriptData;
+                        emit_token!(self, new_character_string('>'));
+                    }
+                    '\u{0000}' => {
+                        self.state = ScriptDataDoubleEscaped;
+                        emit_token!(self, new_character_string('\u{FFFD}'));
+                    }
+                    _ => {
+                        self.state = ScriptDataDoubleEscaped;
+                        emit_token!(self, new_character_string(self.chars[self.idx]));
+                    }
+                },
+                ScriptDataDoubleEscapedLessThan => match self.chars[self.idx] {
+                    '/' => {
+                        temp_buf = String::new();
+                        self.temp_buffer = String::new();
+                        self.state = ScriptDataDoubleEscapeEnd;
+                        emit_token!(self, new_character_string('/'));
+                    }
+                    _ => {
+                        self.state = ScriptDataDoubleEscaped;
+                        return;
+                    }
+                },
+                ScriptDataDoubleEscapeEnd => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' | '/' | '>' => {
+                        if temp_buf == "script" {
+                            self.state = ScriptDataEscaped;
+                        } else {
+                            self.state = ScriptDataDoubleEscaped;
+                        }
+                        emit_token!(self, new_character_string(self.chars[self.idx]));
+                    }
+                    _ => {
+                        if self.chars[self.idx].is_alphabetic() {
+                            temp_buf.push(self.chars[self.idx].to_lowercase().next().unwrap());
+                            self.temp_buffer
+                                .push(self.chars[self.idx].to_lowercase().next().unwrap());
+                            emit_token!(self, new_character_string(self.chars[self.idx]));
+                        } else {
+                            self.state = ScriptDataDoubleEscaped;
+                            return;
+                        }
+                    }
+                },
+                BeforeAttributeName => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {}
+                    '/' | '>' => {
+                        self.state = AfterAttributeName;
+                        return;
+                    }
+                    '=' => {
+                        self.cur_token.attributes.push(HtmlAttribute::new());
+                        self.cur_token
+                            .attributes
+                            .last_mut()
+                            .unwrap()
+                            .name
+                            .push(self.chars[self.idx]);
+                        self.state = AttributeName;
+                    }
+                    _ => {
+                        self.cur_token.attributes.push(HtmlAttribute::new());
+                        self.state = AttributeName;
+                        return;
+                    }
+                },
+                AttributeName => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' | '/' | '>' => {
+                        self.state = AfterAttributeName;
+                        return;
+                    }
+                    '=' => self.state = BeforeAttributeValue,
+                    '\u{0000}' => {
+                        self.cur_token
+                            .attributes
+                            .last_mut()
+                            .unwrap()
+                            .name
+                            .push('\u{FFFD}');
+                    }
+                    // '"' | '\u{0027}' | '<' => {} // Error but treated as the anything else category
+                    _ => {
+                        self.cur_token
+                            .attributes
+                            .last_mut()
+                            .unwrap()
+                            .name
+                            .push(self.chars[self.idx].to_lowercase().next().unwrap());
+                    }
+                },
+                AfterAttributeName => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {} // Ignore
+                    '/' => self.state = SelfClosingStartTag,
+                    '=' => self.state = BeforeAttributeValue,
+                    '>' => {
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => {
+                        self.cur_token.attributes.push(HtmlAttribute::new());
+                        self.state = AttributeName;
+                        return;
+                    }
+                },
+                BeforeAttributeValue => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {} // Ignore
+                    '"' => self.state = AttributeValueDoubleQuoted,
+                    '\u{0027}' => self.state = AttributeValueSingleQuoted,
+                    '>' => {
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => {
+                        self.state = AttributeValueUnquoted;
+                        return;
+                    }
+                },
+                AttributeValueDoubleQuoted => match self.chars[self.idx] {
+                    '"' => self.state = AfterAttributeValueQuoted,
+                    '&' => {
+                        self.return_state = AttributeValueDoubleQuoted;
+                        self.state = CharacterReference;
+                    }
+                    '\u{0000}' => {
+                        self.cur_token
+                            .attributes
+                            .last_mut()
+                            .unwrap()
+                            .value
+                            .push('\u{FFFD}');
+                    }
+                    _ => {
+                        self.cur_token
+                            .attributes
+                            .last_mut()
+                            .unwrap()
+                            .value
+                            .push(self.chars[self.idx].to_lowercase().next().unwrap());
+                    }
+                },
+                AttributeValueSingleQuoted => match self.chars[self.idx] {
+                    '\u{0027}' => self.state = AfterAttributeValueQuoted,
+                    '&' => {
+                        self.return_state = AttributeValueDoubleQuoted;
+                        self.state = CharacterReference;
+                    }
+                    '\u{0000}' => {
+                        self.cur_token
+                            .attributes
+                            .last_mut()
+                            .unwrap()
+                            .value
+                            .push('\u{FFFD}');
+                    }
+                    _ => {
+                        self.cur_token
+                            .attributes
+                            .last_mut()
+                            .unwrap()
+                            .value
+                            .push(self.chars[self.idx].to_lowercase().next().unwrap());
+                    }
+                },
+                AttributeValueUnquoted => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
+                        self.state = BeforeAttributeName
+                    }
+                    '&' => {
+                        self.return_state = AttributeValueUnquoted;
+                        self.state = CharacterReference;
+                    }
+                    '>' => {
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    '\u{0000}' => {
+                        self.cur_token
+                            .attributes
+                            .last_mut()
+                            .unwrap()
+                            .value
+                            .push('\u{FFFD}');
+                    }
+                    // '"' | '\u{0027}' | '<' | '=' | '`' => {} // Error, treat as anything else
+                    _ => {
+                        self.cur_token
+                            .attributes
+                            .last_mut()
+                            .unwrap()
+                            .value
+                            .push(self.chars[self.idx].to_lowercase().next().unwrap());
+                    }
+                },
+                AfterAttributeValueQuoted => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
+                        self.state = BeforeAttributeName
+                    }
+                    '/' => self.state = SelfClosingStartTag,
+                    '>' => {
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => {
+                        self.state = BeforeAttributeName;
+                        return;
+                    }
+                },
+                SelfClosingStartTag => match self.chars[self.idx] {
+                    '>' => {
+                        self.cur_token.flags.self_closing = true;
+                        self.state = Data;
+
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => {
+                        self.state = BeforeAttributeName;
+                        return;
+                    }
+                },
+                BogusComment => match self.chars[self.idx] {
+                    '>' => {
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    '\u{0000}' => {
+                        self.cur_token.data.push('\u{FFFD}');
+                    }
+                    _ => {
+                        self.cur_token.data.push(self.chars[self.idx]);
+                    }
+                },
+                MarkupDeclarationOpen => {
+                    if self.idx + 1 < self.chars.len()
+                        && compare_slices(&self.chars[self.idx..self.idx + 2], &['-', '-'], true)
+                    {
+                        self.idx += 2;
+                        self.cur_token = HtmlToken::new(TokenTag::Comment);
+                        self.state = CommentStart;
+
+                        return;
+                    }
+                    if self.idx + 7 < self.chars.len()
+                        && compare_slices(
+                            &self.chars[self.idx..self.idx + 8],
+                            &['d', 'o', 'c', 't', 'y', 'p', 'e'],
+                            false,
+                        )
+                    {
+                        self.idx += 8;
+                        self.state = Doctype;
+                        return;
+                    }
+                    if self.idx + 7 < self.chars.len()
+                        && compare_slices(
+                            &self.chars[self.idx..self.idx + 8],
+                            &['[', 'C', 'D', 'A', 'T', 'a', '['],
+                            true,
+                        )
+                    {
+                        self.idx += 8;
+                        // TODO: Check if there is an adjusted current node
+                        //       and it's not an element in HTML namespace.
+                        //       If not, create a comment instead
+                        self.state = CDataSection;
+                        return;
+                    }
+
+                    self.cur_token = HtmlToken::new(TokenTag::Comment);
+                    self.state = BogusComment;
+                    return;
+                }
+                CommentStart => match self.chars[self.idx] {
+                    '-' => self.state = CommentStartDash,
+                    '>' => {
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => {
+                        self.state = Comment;
+                        return;
+                    }
+                },
+                CommentStartDash => match self.chars[self.idx] {
+                    '-' => self.state = CommentEnd,
+                    '>' => {
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => {
+                        self.cur_token.data_append('-');
+                        self.state = Comment;
+                        return;
+                    }
+                },
+                Comment => match self.chars[self.idx] {
+                    '<' => {
+                        self.cur_token.data_append('<');
+                        self.state = CommentLessThan;
+                    }
+                    '-' => self.state = CommentEndDash,
+                    '\u{0000}' => self.cur_token.data_append('\u{FFFD}'),
+                    _ => self.cur_token.data_append(self.chars[self.idx]),
+                },
+                CommentLessThan => match self.chars[self.idx] {
+                    '!' => {
+                        self.cur_token.data_append('!');
+                        self.state = CommentLessThanBang;
+                    }
+                    '<' => self.cur_token.data_append('<'),
+                    _ => {
+                        self.state = Comment;
+                        return;
+                    }
+                },
+                CommentLessThanBang => match self.chars[self.idx] {
+                    '-' => self.state = CommentLessThanBangDash,
+                    _ => {
+                        self.state = Comment;
+                        return;
+                    }
+                },
+                CommentLessThanBangDash => match self.chars[self.idx] {
+                    '-' => self.state = CommentLessThanBangDashDash,
+                    _ => {
+                        self.state = Comment;
+                        return;
+                    }
+                },
+                CommentLessThanBangDashDash => {
+                    self.state = CommentEnd;
+                    return;
+                }
+                CommentEndDash => match self.chars[self.idx] {
+                    '-' => self.state = CommentEnd,
+                    _ => {
+                        self.cur_token.data_append('-');
+                        self.state = Comment;
+                        return;
+                    }
+                },
+                CommentEnd => match self.chars[self.idx] {
+                    '>' => {
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    '!' => self.state = CommentEndBang,
+                    '-' => self.cur_token.data_append('-'),
+                    _ => {
+                        self.cur_token.data_append('-');
+                        self.state = Comment;
+                        return;
+                    }
+                },
+                CommentEndBang => match self.chars[self.idx] {
+                    '-' => {
+                        self.cur_token.data_append('-');
+                        self.cur_token.data_append('!');
+                        self.state = CommentEndDash;
+                    }
+                    '>' => {
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => {
+                        self.cur_token.data_append('-');
+                        self.cur_token.data_append('!');
+                        self.state = Comment;
+                        return;
+                    }
+                },
+                Doctype => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
+                        self.state = BeforeDoctypeName
+                    }
+                    _ => {
+                        self.state = BeforeDoctypeName;
+                        return;
+                    }
+                },
+                BeforeDoctypeName => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {}
+                    '\u{0000}' => {
+                        self.cur_token = HtmlToken::new(TokenTag::Doctype(DoctypeData::new()));
+                        self.cur_token.data_append('\u{FFFD}');
+                        self.state = DoctypeName;
+                    }
+                    '>' => {
+                        self.cur_token = HtmlToken::new(TokenTag::Doctype(DoctypeData::new()));
+                        self.cur_token.flags.force_quirks = true;
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => {
+                        self.cur_token = HtmlToken::new(TokenTag::Doctype(DoctypeData::new()));
+                        self.cur_token
+                            .data_append(self.chars[self.idx].to_lowercase().next().unwrap());
+                        self.state = DoctypeName;
+                    }
+                },
+                DoctypeName => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => self.state = AfterDoctype,
+                    '>' => {
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    '\u{0000}' => self.cur_token.data_append('\u{FFFD}'),
+                    _ => self
+                        .cur_token
+                        .data_append(self.chars[self.idx].to_lowercase().next().unwrap()),
+                },
+                AfterDoctypeName => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {}
+                    '>' => {
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => {
+                        if self.idx + 6 < self.chars.len()
+                            && compare_slices(
+                                &self.chars[self.idx..self.idx + 7],
+                                &['p', 'u', 'b', 'l', 'i', 'c'],
+                                false,
+                            )
+                        {
+                            self.idx += 7;
+                            self.state = AfterDoctypePublicKeyword;
+                            return;
+                        }
+                        if self.idx + 6 < self.chars.len()
+                            && compare_slices(
+                                &self.chars[self.idx..self.idx + 7],
+                                &['s', 'y', 's', 't', 'e', 'm'],
+                                false,
+                            )
+                        {
+                            self.idx += 7;
+                            return;
+                        }
+
+                        self.cur_token.flags.force_quirks = true;
+                        self.state = BogusComment;
+                        return;
+                    }
+                },
+                AfterDoctypePublicKeyword => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
+                        self.state = BeforeDoctypePublicIndentifier;
+                    }
+                    '"' => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            val.public_identifier = Some(String::new());
+                            self.state = DoctypePublicIdentifierDoubleQuote;
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                    '\u{0027}' => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            val.public_identifier = Some(String::new());
+                            self.state = DoctypePublicIdentifierSingleQuote;
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                    '>' => {
+                        self.cur_token.flags.force_quirks = true;
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => {
+                        self.cur_token.flags.force_quirks = true;
+                        self.state = BogusDoctype;
+                        return;
+                    }
+                },
+                BeforeDoctypePublicIndentifier => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {} // Ignore
+                    '"' => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            val.public_identifier = Some(String::new());
+                            self.state = DoctypePublicIdentifierDoubleQuote;
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                    '\u{0027}' => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            val.public_identifier = Some(String::new());
+                            self.state = DoctypePublicIdentifierSingleQuote;
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                    '>' => {
+                        self.cur_token.flags.force_quirks = true;
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => {
+                        self.cur_token.flags.force_quirks = true;
+                        self.state = BogusDoctype;
+                        return;
+                    }
+                },
+                DoctypePublicIdentifierDoubleQuote => match self.chars[self.idx] {
+                    '"' => self.state = AfterDoctypePublicIdentifier,
+                    '\u{0000}' => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            match val.public_identifier {
+                                Some(ref mut s) => {
+                                    s.push('\u{FFFD}');
+                                }
+                                None => {
+                                    // TODO: Correct with error handling
+                                    panic!("In DoctypePublicIdentifierDoubleQuote without public identifier created");
+                                }
+                            }
+                            self.state = DoctypePublicIdentifierDoubleQuote;
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                    '>' => {
+                        self.cur_token.flags.force_quirks = true;
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            match val.public_identifier {
+                                Some(ref mut s) => {
+                                    s.push(self.chars[self.idx]);
+                                }
+                                None => {
+                                    // TODO: Correct with error handling
+                                    panic!("In DoctypePublicIdentifierDoubleQuote without public identifier created");
+                                }
+                            }
+                            self.state = DoctypePublicIdentifierDoubleQuote;
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                },
+                DoctypePublicIdentifierSingleQuote => match self.chars[self.idx] {
+                    '\u{0027}' => self.state = AfterDoctypePublicIdentifier,
+                    '\u{0000}' => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            match val.public_identifier {
+                                Some(ref mut s) => {
+                                    s.push('\u{FFFD}');
+                                }
+                                None => {
+                                    // TODO: Correct with error handling
+                                    panic!("In DoctypePublicIdentifierSingleQuote without public identifier created");
+                                }
+                            }
+                            self.state = DoctypePublicIdentifierDoubleQuote;
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                    '>' => {
+                        self.cur_token.flags.force_quirks = true;
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            match val.public_identifier {
+                                Some(ref mut s) => {
+                                    s.push(self.chars[self.idx]);
+                                }
+                                None => {
+                                    // TODO: Correct with error handling
+                                    panic!("In DoctypePublicIdentifierSingleQuote without public identifier created");
+                                }
+                            }
+                            self.state = DoctypePublicIdentifierDoubleQuote;
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                },
+                AfterDoctypePublicIdentifier => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
+                        self.state = BetweenDoctypePublicAndSystemIdentifiers;
+                    }
+                    '>' => {
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    '"' => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            val.system = Some(String::new());
+                            self.state = DoctypeSystemIdentifierDoubleQuote;
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                    '\u{0027}' => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            val.system = Some(String::new());
+                            self.state = DoctypeSystemIdentifierSingleQuote;
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                    _ => {
+                        self.cur_token.flags.force_quirks = true;
+                        self.state = BogusDoctype;
+                        return;
+                    }
+                },
+                BetweenDoctypePublicAndSystemIdentifiers => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {}
+                    '>' => {
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    '"' => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            val.system = Some(String::new());
+                            self.state = DoctypeSystemIdentifierDoubleQuote;
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                    '\u{0027}' => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            val.system = Some(String::new());
+                            self.state = DoctypeSystemIdentifierSingleQuote;
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                    _ => {
+                        self.cur_token.flags.force_quirks = true;
+                        self.state = BogusDoctype;
+                        return;
+                    }
+                },
+                AfterDoctypeSystemKeyword => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {
+                        self.state = BeforeDoctypeSystemIdentifier;
+                    }
+                    '"' => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            val.system = Some(String::new());
+                            self.state = DoctypeSystemIdentifierDoubleQuote;
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                    '\u{0027}' => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            val.system = Some(String::new());
+                            self.state = DoctypeSystemIdentifierSingleQuote;
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                    '>' => {
+                        self.cur_token.flags.force_quirks = true;
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => {
+                        self.cur_token.flags.force_quirks = true;
+                        self.state = BogusDoctype;
+                        return;
+                    }
+                },
+                BeforeDoctypeSystemIdentifier => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {}
+                    '"' => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            val.system = Some(String::new());
+                            self.state = DoctypeSystemIdentifierDoubleQuote;
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                    '\u{0027}' => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            val.system = Some(String::new());
+                            self.state = DoctypeSystemIdentifierSingleQuote;
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                    '>' => {
+                        self.cur_token.flags.force_quirks = true;
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => {
+                        self.cur_token.flags.force_quirks = true;
+                        self.state = BogusDoctype;
+                        return;
+                    }
+                },
+                DoctypeSystemIdentifierDoubleQuote => match self.chars[self.idx] {
+                    '"' => self.state = AfterDoctypeSystemIdentifier,
+                    '\u{0000}' => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            match val.system {
+                                Some(ref mut s) => s.push('\u{FFFD}'),
+                                None => panic!("In DoctypeSystemIdentifier without system set"),
+                            };
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                    '>' => {
+                        self.cur_token.flags.force_quirks = true;
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            match val.system {
+                                Some(ref mut s) => s.push(self.chars[self.idx]),
+                                None => panic!("In DoctypeSystemIdentifier without system set"),
+                            };
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                },
+                DoctypeSystemIdentifierSingleQuote => match self.chars[self.idx] {
+                    '\u{0027}' => self.state = AfterDoctypeSystemIdentifier,
+                    '\u{0000}' => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            match val.system {
+                                Some(ref mut s) => s.push('\u{FFFD}'),
+                                None => panic!("In DoctypeSystemIdentifier without system set"),
+                            };
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                    '>' => {
+                        self.cur_token.flags.force_quirks = true;
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => match self.cur_token.tag {
+                        TokenTag::Doctype(ref mut val) => {
+                            match val.system {
+                                Some(ref mut s) => s.push(self.chars[self.idx]),
+                                None => panic!("In DoctypeSystemIdentifier without system set"),
+                            };
+                        }
+                        _ => {
+                            // TODO: This is fine as a panic for now,
+                            //       but we need better error handling
+                            panic!("HTML Tokenizer ")
+                        }
+                    },
+                },
+                AfterDoctypeSystemIdentifier => match self.chars[self.idx] {
+                    '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {}
+                    '>' => {
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => {
+                        self.state = BogusDoctype;
+                        return;
+                    }
+                },
+                BogusDoctype => match self.chars[self.idx] {
+                    '>' => {
+                        self.state = Data;
+                        emit_token!(self, self.cur_token.clone());
+                    }
+                    _ => {}
+                },
+                CDataSection => match self.chars[self.idx] {
+                    ']' => self.state = CDataSectionBracket,
+                    _ => {
+                        emit_token!(self, new_character_string(self.chars[self.idx]));
+                    }
+                },
+                CDataSectionBracket => match self.chars[self.idx] {
+                    ']' => self.state = CDataSectionEnd,
+                    _ => {
+                        emit_token_no_return!(self, new_character_string(']'));
+                        self.state = CDataSection;
+                        return;
+                    }
+                },
+                CDataSectionEnd => match self.chars[self.idx] {
+                    ']' => {
+                        emit_token!(self, new_character_string(']'));
+                    }
+                    '>' => self.state = Data,
+                    _ => {
+                        emit_token_no_return!(self, new_character_string(']'));
+                        emit_token_no_return!(self, new_character_string(']'));
+                        self.state = CDataSection;
+                        return;
+                    }
+                },
+                CharacterReference => {
+                    temp_buf = "&".to_string();
+                    match self.chars[self.idx] {
+                        '#' => {
+                            temp_buf.push(self.chars[self.idx]);
+                            self.temp_buffer.push(self.chars[self.idx]);
+                            self.state = NumericCharacterReference;
+                        }
+                        _ => {
+                            if self.chars[self.idx].is_alphanumeric() {
+                                self.state = NamedCharacterReference;
+                                return;
+                            } else {
+                                if is_part_of_attribute(self.return_state) {
+                                    temp_buf
+                                        .chars()
+                                        .for_each(|c| self.cur_token.append_to_last_attribute(c));
+                                } else {
+                                    temp_buf.chars().for_each(|c| {
+                                        emit_token_no_return!(self, new_character_string(c));
+                                    });
+                                }
+
+                                self.state = self.return_state;
+                                return;
+                            }
+                        }
+                    }
+                }
+                // NamedCharacterReference => {}
+                AmbiguousAmpersand => {
+                    if self.chars[self.idx].is_alphanumeric() {
+                        if is_part_of_attribute(self.return_state) {
+                            self.cur_token
+                                .append_to_last_attribute(self.chars[self.idx]);
+                        } else {
+                            emit_token!(self, new_character_string(self.chars[self.idx]));
+                        }
+                    } else {
+                        self.state = self.return_state;
+                        return;
+                    }
+                }
+                NumericCharacterReference => {
+                    self.character_reference_code = 0;
+                    match self.chars[self.idx] {
+                        'x' | 'X' => {
+                            temp_buf.push(self.chars[self.idx]);
+                            self.temp_buffer.push(self.chars[self.idx]);
+                            self.state = HexadecimalCharacterReferenceStart;
+                        }
+                        _ => {
+                            self.state = DecimalCharacterReferenceStart;
+                            return;
+                        }
+                    }
+                }
+                HexadecimalCharacterReferenceStart => match self.chars[self.idx] {
+                    '0'..='9' | 'A'..='F' | 'a'..='f' => {
+                        self.state = HexadecimalCharacterReference;
+                        return;
+                    }
+                    _ => {
+                        if is_part_of_attribute(self.return_state) {
+                            temp_buf
+                                .chars()
+                                .for_each(|c| self.cur_token.append_to_last_attribute(c));
+                        } else {
+                            temp_buf.chars().for_each(|c| {
+                                emit_token_no_return!(self, new_character_string(c));
+                            });
+                        }
+                        self.state = self.return_state;
+                        return;
+                    }
+                },
+                DecimalCharacterReferenceStart => match self.chars[self.idx] {
+                    '0'..='9' => {
+                        self.state = DecimalCharacterReference;
+                        return;
+                    }
+                    _ => {
+                        if is_part_of_attribute(self.return_state) {
+                            temp_buf
+                                .chars()
+                                .for_each(|c| self.cur_token.append_to_last_attribute(c));
+                        } else {
+                            temp_buf.chars().for_each(|c| {
+                                emit_token_no_return!(self, new_character_string(c));
+                            });
+                        }
+                        self.state = self.return_state;
+                        return;
+                    }
+                },
+                HexadecimalCharacterReference => match self.chars[self.idx] {
+                    '0'..='9' | 'A'..='F' | 'a'..='f' => {
+                        self.character_reference_code *= 16;
+                        self.character_reference_code += self.chars[self.idx].to_digit(16).unwrap();
+                    }
+                    ';' => self.state = NumericCharacterReferenceEnd,
+                    _ => {
+                        self.state = NumericCharacterReferenceEnd;
+                        return;
+                    }
+                },
+                DecimalCharacterReference => match self.chars[self.idx] {
+                    '0'..='9' => {
+                        self.character_reference_code *= 16;
+                        self.character_reference_code += self.chars[self.idx].to_digit(10).unwrap();
+                    }
+                    ';' => self.state = NumericCharacterReferenceEnd,
+                    _ => {
+                        self.state = NumericCharacterReferenceEnd;
+                        return;
+                    }
+                },
+                NumericCharacterReferenceEnd => {
+                    match self.character_reference_code {
+                // Null check
+                0x00 |
+                // Surrogate check
+                0xD800..=0xDBFF | 0xDC00..=0xDFFF | 0x10FFFF.. => {
+                    self.character_reference_code = 0xFFFD;
+                }
+                // // NonCharacter Check
+                // 0xFDD0..=0xFDEF
+                // | 0xFFFE
+                // | 0xFFFF
+                // | 0x1FFFE
+                // | 0x1FFFF
+                // | 0x2FFFF
+                // | 0x3FFFE
+                // | 0x3FFFF
+                // | 0x4FFFE
+                // | 0x4FFFF
+                // | 0x5FFFE
+                // | 0x5FFFF
+                // | 0x6FFFE
+                // | 0x6FFFF
+                // | 0x7FFFE
+                // | 0x7FFFF
+                // | 0x8FFFE
+                // | 0x8FFFF
+                // | 0x9FFFE
+                // | 0x9FFFF
+                // | 0xAFFFE
+                // | 0xAFFFF
+                // | 0xBFFFE
+                // | 0xBFFFF
+                // | 0xCFFFE
+                // | 0xCFFFF
+                // | 0xDFFFE
+                // | 0xDFFFF
+                // | 0xEFFFE
+                // | 0xEFFFF
+                // | 0xFFFFE
+                // | 0xFFFFF
+                // | 0x10FFFE => {}
+                // // Control Character Check
+                // 0x0001..0x0020 | 0x007f..=0x009f => {}
+                _ => {
+                    self.character_reference_code =
+                        lookup_character_reference(self.character_reference_code);
+                }
+            };
+                    temp_buf = String::new();
+                    self.temp_buffer = String::new();
+                    // This cast should probably be error checked
+                    temp_buf.push(self.character_reference_code as u8 as char);
+                    self.temp_buffer
+                        .push(self.character_reference_code as u8 as char);
+                    if is_part_of_attribute(self.return_state) {
+                        temp_buf
+                            .chars()
+                            .for_each(|c| self.cur_token.append_to_last_attribute(c));
+                    } else {
+                        temp_buf.chars().for_each(|c| {
+                            emit_token!(self, new_character_string(c));
+                        });
+                    }
+
+                    self.state = self.return_state;
+                }
+                _ => {
+                    println!("Unsupported tag found");
+                }
+            };
+            self.idx += 1;
+        }
+    }
+
+    fn get_eof_token(&mut self) -> HtmlToken {
+        // TODO: Some states have specific EoF behaviour
+        //       This should eventually check the state
+        //       and behave correctly
+        match self.state {
+            _ => HtmlToken::new(TokenTag::EoF),
+        }
+    }
 }
+
+#[cfg(test)]
+mod test {}

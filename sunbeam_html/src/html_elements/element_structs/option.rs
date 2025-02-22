@@ -1,3 +1,5 @@
+use crate::html_elements::common_attributes;
+
 // Name different due to namespaces, should probably be
 // considered again
 pub struct HtmlOption {
@@ -14,6 +16,18 @@ impl Default for HtmlOption {
             label: None,
             selected: false,
             value: None,
+        }
+    }
+}
+
+impl common_attributes::Element for HtmlOption {
+    fn add_attribute(&mut self, name: String, value: String) {
+        match name.as_str() {
+            "disabled" => self.disabled = true,
+            "label" => self.label = Some(value),
+            "selected" => self.selected = true,
+            "value" => self.value = Some(value),
+            _ => {}
         }
     }
 }

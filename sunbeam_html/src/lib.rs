@@ -1,3 +1,4 @@
+mod document;
 mod html_elements;
 mod lang_system;
 mod parser;

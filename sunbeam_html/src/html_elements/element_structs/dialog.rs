@@ -1,3 +1,5 @@
+use crate::html_elements::common_attributes;
+
 pub struct Dialog {
     open: bool,
 }
@@ -5,5 +7,15 @@ pub struct Dialog {
 impl Default for Dialog {
     fn default() -> Self {
         Dialog { open: false }
+    }
+}
+
+impl common_attributes::Element for Dialog {
+    fn add_attribute(&mut self, name: String, value: String) {
+        _ = value;
+        match name.as_str() {
+            "open" => self.open = true,
+            _ => {}
+        }
     }
 }

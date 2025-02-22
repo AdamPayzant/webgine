@@ -52,6 +52,21 @@ pub enum ContentEditableOptions {
     PlainTextOnly,
 }
 
+#[derive(Default)]
+pub enum HiddenState {
+    #[default]
+    NotHidden,
+    Hidden,
+    UntilFound,
+}
+
+#[derive(Default)]
+pub enum PopOverState {
+    #[default]
+    Auto,
+    Manual,
+}
+
 // TODO: Determine if this is too bloated to attach to all HTML values.
 //       Maybe instead make them all optional boxes? Most items are smaller
 //       than a pointer though, so optional boxes would probably increase the
@@ -69,11 +84,11 @@ pub struct GlobalAttributes {
     draggable: bool,
     enterkeyhint: String,
     exportparts: Vec<String>, // Need to read up on this one
-    hidden: bool,
+    hidden: HiddenState,
     id: String,
     inert: bool,
     inputmode: Option<InputModeOptions>,
-    is: String, // TODO: Reassess when HTML engine supports custom components
+    is: Option<String>, // TODO: Reassess when HTML engine supports custom components
     itemid: String,
     itemprop: String,
     itemref: Vec<String>,
@@ -82,16 +97,14 @@ pub struct GlobalAttributes {
     lang: Option<LangTag>, // Ideally reference some lookup to our language system
     nonce: Option<String>,
     part: Vec<String>,
-    popover: Option<String>,
-    // roles: , Figure this one out
+    popover: Option<PopOverState>,
     slot: Option<String>,
     spellcheck: bool,
     // style: , Figure out how we're doing styling
-    tabindex: Option<u32>,
+    tabindex: Option<u16>,
     title: Option<String>,
     translate: bool,
     writingsuggestions: bool,
-    unknown_attributes: Vec<String>,
 }
 
 impl Default for GlobalAttributes {
@@ -107,11 +120,11 @@ impl Default for GlobalAttributes {
             draggable: false,
             enterkeyhint: "".to_string(),
             exportparts: Vec::new(),
-            hidden: false,
+            hidden: HiddenState::NotHidden,
             id: "".to_string(),
             inert: false,
             inputmode: None,
-            is: "".to_string(),
+            is: None,
             itemid: "".to_string(),
             itemprop: "".to_string(),
             itemref: Vec::new(),
@@ -127,7 +140,191 @@ impl Default for GlobalAttributes {
             title: None,
             translate: false,
             writingsuggestions: false,
-            unknown_attributes: Vec::new(),
         }
+    }
+}
+
+impl GlobalAttributes {
+    // TODO: This needs to be benchmarked against a map data structure.
+    pub fn add_attribute(&mut self, name: String, value: String) -> bool {
+        match name.as_str() {
+            "accesskey" => {
+                self.access_key = value.chars().into_iter().next();
+                return true;
+            }
+            "autocapitalize" => {
+                self.auto_capitalize = match value.as_str() {
+                    "sentences" | "on" => AutoCapitalizeOptions::Sentences,
+                    "words" => AutoCapitalizeOptions::Words,
+                    "characters" => AutoCapitalizeOptions::Characters,
+                    "none" | "off" | _ => AutoCapitalizeOptions::None,
+                };
+                return true;
+            }
+            "autofocus" => {
+                self.auto_focus = true;
+                return true;
+            }
+            "class" => {
+                self.class = value;
+                return true;
+            }
+            "contenteditable" => {
+                self.contenteditable = match value.as_str() {
+                    "false" => ContentEditableOptions::False,
+                    "plaintext-only" => ContentEditableOptions::PlainTextOnly,
+                    _ => ContentEditableOptions::True,
+                };
+                return true;
+            }
+            "dir" => {
+                self.dir = match value.as_str() {
+                    "ltr" => DirOptions::Ltr,
+                    "rtl" => DirOptions::Rtl,
+                    "auto" => DirOptions::Auto,
+                    _ => DirOptions::Auto, // TODO: Figure out the best way to reference the parent
+                };
+                return true;
+            }
+            "draggable" => {
+                self.draggable = match value.as_str() {
+                    "true" => true,
+                    _ => false,
+                };
+                return true;
+            }
+            "enterkeyhint" => {
+                self.enterkeyhint = value;
+                return true;
+            }
+            "exportparts" => {
+                self.exportparts = value.split(",").map(|s| s.trim().to_string()).collect();
+                return true;
+            }
+            "hidden" => {
+                self.hidden = match value.as_str() {
+                    "until-found" => HiddenState::UntilFound,
+                    _ => HiddenState::Hidden,
+                };
+                return true;
+            }
+            "id" => {
+                self.id = value;
+                return true;
+            }
+            "inert" => {
+                self.inert = true;
+                return true;
+            }
+            "inputmode" => {
+                self.inputmode = match value.as_str() {
+                    "none" => Some(InputModeOptions::None),
+                    "decimal" => Some(InputModeOptions::Decimal),
+                    "numeric" => Some(InputModeOptions::Numeric),
+                    "tel" => Some(InputModeOptions::Tel),
+                    "search" => Some(InputModeOptions::Search),
+                    "email" => Some(InputModeOptions::Email),
+                    "url" => Some(InputModeOptions::Url),
+                    "text" | _ => Some(InputModeOptions::Url),
+                };
+                return true;
+            }
+            "is" => {
+                self.is = Some(value);
+                return true;
+            }
+            "itemid" => {
+                self.itemid = value;
+                return true;
+            }
+            "itemprop" => {
+                self.itemprop = value;
+                return true;
+            }
+            "itemref" => {
+                self.itemref = value.split(" ").map(|s| s.to_string()).collect();
+                return true;
+            }
+            "itemscope" => {
+                self.itemscope = true;
+                return true;
+            }
+            "itemtype" => {
+                self.itemtype = value;
+                return true;
+            }
+            "lang" => {
+                // TODO: Implement language system
+                return true;
+            }
+            "nonce" => {
+                self.nonce = Some(value);
+                return true;
+            }
+            "part" => {
+                self.part = value.split("").map(|s| s.to_string()).collect();
+                return true;
+            }
+            "popover" => {
+                self.popover = Some(match value.as_str() {
+                    "manual" => PopOverState::Manual,
+                    _ => PopOverState::Auto,
+                });
+                return true;
+            }
+            "slot" => {
+                self.slot = Some(value);
+                return true;
+            }
+            "spellcheck" => {
+                self.spellcheck = match value.as_str() {
+                    "false" => false,
+                    _ => true,
+                };
+                return true;
+            }
+            "style" => {
+                // TODO: Figure out styling
+            }
+            "tabindex" => {
+                // parse as a u32 so we cap to the maximum size
+                self.tabindex = Some(match value.parse::<u32>() {
+                    Ok(v) => {
+                        if v > 32767 {
+                            32767
+                        } else {
+                            v as u16
+                        }
+                    }
+                    Err(_) => return false,
+                });
+            }
+            "title" => {
+                self.title = Some(value);
+                return true;
+            }
+            "translate" => {
+                self.translate = match value.as_str() {
+                    "no" => false,
+                    _ => true,
+                };
+                return true;
+            }
+            "writingsuggestions" => {
+                self.writingsuggestions = match value.as_str() {
+                    "false" => false,
+                    _ => true,
+                };
+                return true;
+            }
+            _ => {}
+        };
+
+        if name.starts_with("data-") {
+            self.data.insert(name.as_str()[5..].to_string(), value);
+            return true;
+        }
+
+        return false;
     }
 }

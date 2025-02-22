@@ -3,4 +3,8 @@ name = "sunbeam_html"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = ["crates/*"]
+
 [dependencies]
+sunbeam_macros = { path = "crates/sunbeam_macros" }

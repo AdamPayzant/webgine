@@ -17,3 +17,17 @@ impl Default for Style {
         }
     }
 }
+
+impl common_attributes::Element for Style {
+    fn add_attribute(&mut self, name: String, value: String) {
+        match name.as_str() {
+            "blocking" => {
+                self.blocking = common_attributes::BlockingOption::derive_blocking(value.as_str())
+            }
+            "media" => self.media = Some(value),
+            "nonce" => self.nonce = Some(value),
+            "title" => self.title = Some(value),
+            _ => {}
+        }
+    }
+}

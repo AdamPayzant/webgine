@@ -52,3 +52,51 @@ impl Default for Img {
         }
     }
 }
+
+impl common_attributes::Element for Img {
+    fn add_attribute(&mut self, name: String, value: String) {
+        match name.as_str() {
+            "alt" => self.alt = Some(value),
+            "crossorigin" => {
+                self.crossorigin =
+                    common_attributes::CrossOriginOption::derive_crossorigin(value.as_str())
+            }
+            "decoding" => {
+                self.decoding = match value.as_str() {
+                    "sync" => DecodingOption::Sync,
+                    "async" => DecodingOption::Async,
+                    "auto" | _ => DecodingOption::Auto,
+                }
+            }
+            "elementtiming" => self.elementtiming = Some(value),
+            "fetchpriority" => {
+                self.fetchpriority =
+                    common_attributes::FetchPriorityOption::derive_priority(value.as_str())
+            }
+            "height" => match value.parse() {
+                Ok(h) => self.height = h,
+                Err(_) => {}
+            },
+            "ismap" => self.ismap = true,
+            "loading" => {
+                self.loading = match value.as_str() {
+                    "lazy" => LoadingOption::Lazy,
+                    "eager" | _ => LoadingOption::Eager,
+                }
+            }
+            "referrerpolicy" => {
+                self.referrerpolicy =
+                    common_attributes::ReferrerPolicyOption::derive_policy(value.as_str())
+            }
+            "sizes" => self.size = value.split(",").map(|s| s.trim().to_string()).collect(),
+            "src" => self.src = Some(value),
+            "srcset" => self.srcset = value.split(",").map(|s| s.to_string()).collect(),
+            "width" => match value.parse() {
+                Ok(w) => self.width = w,
+                Err(_) => {}
+            },
+            "usemap" => self.usemap = Some(value),
+            _ => {}
+        }
+    }
+}

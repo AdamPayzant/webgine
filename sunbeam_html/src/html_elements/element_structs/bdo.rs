@@ -1,3 +1,5 @@
+use crate::html_elements::common_attributes;
+
 /* Dir Options
  *
  * Options for the Direction attribute to determine if the
@@ -20,6 +22,20 @@ impl Default for Bdo {
     fn default() -> Self {
         Bdo {
             dir: DirOptions::Ltr,
+        }
+    }
+}
+
+impl common_attributes::Element for Bdo {
+    fn add_attribute(&mut self, name: String, value: String) {
+        match name.as_str() {
+            "dir" => {
+                self.dir = match value.as_str() {
+                    "rtl" => DirOptions::Rtl,
+                    "ltr" | _ => DirOptions::Ltr,
+                }
+            }
+            _ => {}
         }
     }
 }

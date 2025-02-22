@@ -1,3 +1,5 @@
+use crate::html_elements::common_attributes;
+
 #[derive(Default)]
 pub enum FormMethodOption {
     #[default]
@@ -37,7 +39,7 @@ pub struct Button {
     formaction: Option<String>, // Action function override
     formenctype: Option<String>,
     formmethod: FormMethodOption,
-    formvalidate: bool,
+    formnovalidate: bool,
     formtarget: FormTargetOption,
     name: Option<String>,
     popovertarget: Option<String>, // ID
@@ -55,13 +57,63 @@ impl Default for Button {
             formaction: None,
             formenctype: None,
             formmethod: FormMethodOption::default(),
-            formvalidate: false,
+            formnovalidate: false,
             formtarget: FormTargetOption::default(),
             name: None,
             popovertarget: None,
             popovertargetaction: None,
             button_type: ButtonType::default(),
             value: None,
+        }
+    }
+}
+
+impl common_attributes::Element for Button {
+    fn add_attribute(&mut self, name: String, value: String) {
+        match name.as_str() {
+            "autofocus" => self.autofocus = true,
+            "disabled" => self.disabled = true,
+            "form" => self.form = Some(value),
+            "formaction" => self.formaction = Some(value),
+            "formenctype" => self.formenctype = Some(value),
+            "formmethod" => {
+                self.formmethod = match value.as_str() {
+                    "post" => FormMethodOption::Post,
+                    "get" => FormMethodOption::Get,
+                    "dialog" => FormMethodOption::Diaglog,
+                    _ => FormMethodOption::None,
+                }
+            }
+            "formnovalidate" => self.formnovalidate = true,
+            "formtarget" => {
+                self.formtarget = match value.as_str() {
+                    "_self" => FormTargetOption::SelfTarget,
+                    "_blank" => FormTargetOption::Blank,
+                    "_parent" => FormTargetOption::Parent,
+                    "_top" => FormTargetOption::Top,
+                    _ => FormTargetOption::default(),
+                }
+            }
+            "name" => self.name = Some(value),
+            "popovertarget" => self.popovertarget = Some(value),
+            "popovertargetaction" => {
+                self.popovertargetaction = match value.as_str() {
+                    "hide" => Some(PopovertargetActionType::Hide),
+                    "show" => Some(PopovertargetActionType::Show),
+                    "toggle" => Some(PopovertargetActionType::Toggle),
+                    _ => None,
+                }
+            }
+            "type" => {
+                self.button_type = match value.as_str() {
+                    "submit" => ButtonType::Submit,
+                    "reset" => ButtonType::Reset,
+                    "button" => ButtonType::Button,
+                    _ => ButtonType::default(),
+                }
+            }
+            "value" => self.value = Some(value),
+            _ => {}
         }
     }
 }

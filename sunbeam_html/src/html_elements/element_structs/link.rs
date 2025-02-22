@@ -15,6 +15,27 @@ pub enum LinkAsOption {
     Worker,
 }
 
+impl LinkAsOption {
+    pub fn derive_link(value: &str) -> Option<LinkAsOption> {
+        use LinkAsOption::*;
+        match value {
+            "audio" => Some(Audio),
+            "document" => Some(Document),
+            "embed" => Some(Embed),
+            "fetch" => Some(Fetch),
+            "font" => Some(Font),
+            "image" => Some(Image),
+            "object" => Some(Object),
+            "script" => Some(Script),
+            "style" => Some(Style),
+            "track" => Some(Track),
+            "video" => Some(Video),
+            "worker" => Some(Worker),
+            _ => None,
+        }
+    }
+}
+
 pub struct Link {
     link_as: Option<LinkAsOption>,
     blocking: Option<common_attributes::BlockingOption>,
@@ -53,6 +74,41 @@ impl Default for Link {
             sizes: None,
             title: None,
             mimetype: None,
+        }
+    }
+}
+
+impl common_attributes::Element for Link {
+    fn add_attribute(&mut self, name: String, value: String) {
+        match name.as_str() {
+            "as" => self.link_as = LinkAsOption::derive_link(value.as_str()),
+            "blocking" => {
+                self.blocking = common_attributes::BlockingOption::derive_blocking(value.as_str())
+            }
+            "crossorigin" => {
+                self.crossorigin =
+                    common_attributes::CrossOriginOption::derive_crossorigin(value.as_str());
+            }
+            "disabled" => self.disabled = true,
+            "fetchpriority" => {
+                self.fetchpriority =
+                    common_attributes::FetchPriorityOption::derive_priority(value.as_str())
+            }
+            "href" => self.href = Some(value),
+            "hreflang" => self.hreflang = Some(value),
+            "imagesizes" => self.imagesizes = Some(value),
+            "imagesrcset" => self.imagesrcset = value.split(",").map(|s| s.to_string()).collect(),
+            "integrity" => self.integrity = Some(value),
+            "media" => self.media = Some(value),
+            "referrerpolicy" => {
+                self.referrerpolicy =
+                    common_attributes::ReferrerPolicyOption::derive_policy(value.as_str())
+            }
+            "rel" => self.rel = common_attributes::Rel::derive_rels(value.as_str()),
+            "sizes" => self.sizes = Some(value),
+            "title" => self.title = Some(value),
+            "type" => self.mimetype = Some(value),
+            _ => {}
         }
     }
 }

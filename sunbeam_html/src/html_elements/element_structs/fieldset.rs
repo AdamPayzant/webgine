@@ -1,3 +1,5 @@
+use crate::html_elements::common_attributes;
+
 pub struct Fieldset {
     disabled: bool,
     form: Option<String>, // ID
@@ -10,6 +12,17 @@ impl Default for Fieldset {
             disabled: false,
             form: None,
             name: None,
+        }
+    }
+}
+
+impl common_attributes::Element for Fieldset {
+    fn add_attribute(&mut self, name: String, value: String) {
+        match name.as_str() {
+            "disabled" => self.disabled = true,
+            "form" => self.form = Some(value),
+            "name" => self.name = Some(value),
+            _ => {}
         }
     }
 }

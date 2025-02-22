@@ -10,6 +10,18 @@ pub enum ScriptTypeOption {
     Other,
 }
 
+impl ScriptTypeOption {
+    pub fn derive_type(value: &str) -> ScriptTypeOption {
+        use ScriptTypeOption::*;
+        match value {
+            "importmap" => ImportMap,
+            "module" => Module,
+            "javascript" | "" => Javascript,
+            _ => Other,
+        }
+    }
+}
+
 pub struct Script {
     async_script: bool,
     blocking: Option<common_attributes::BlockingOption>,
@@ -38,6 +50,36 @@ impl Default for Script {
             referrerpolicy: common_attributes::ReferrerPolicyOption::default(),
             src: None,
             script_type: ScriptTypeOption::default(),
+        }
+    }
+}
+
+impl common_attributes::Element for Script {
+    fn add_attribute(&mut self, name: String, value: String) {
+        match name.as_str() {
+            "async" => self.async_script = true,
+            "blocking" => {
+                self.blocking = common_attributes::BlockingOption::derive_blocking(value.as_str())
+            }
+            "crossorigin" => {
+                self.crossorigin =
+                    common_attributes::CrossOriginOption::derive_crossorigin(value.as_str())
+            }
+            "defer" => self.defer = true,
+            "fetchpriority" => {
+                self.fetchpriority =
+                    common_attributes::FetchPriorityOption::derive_priority(value.as_str())
+            }
+            "integrity" => self.integrity = Some(value),
+            "nomodule" => self.nonce = Some(value),
+            "nonce" => self.nonce = Some(value),
+            "referrerpolicy" => {
+                self.referrerpolicy =
+                    common_attributes::ReferrerPolicyOption::derive_policy(value.as_str())
+            }
+            "src" => self.src = Some(value),
+            "type" => self.script_type = ScriptTypeOption::derive_type(value.as_str()),
+            _ => {}
         }
     }
 }
