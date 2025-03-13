@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DoctypeData {
     pub public_identifier: Option<String>,
     pub system: Option<String>,
@@ -15,7 +15,7 @@ impl DoctypeData {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum TokenTag {
     Character,
     Comment,

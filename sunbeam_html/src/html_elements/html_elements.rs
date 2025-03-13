@@ -3,9 +3,10 @@ use crate::html_elements::element_structs::*;
 use crate::html_elements::global_attr::GlobalAttributes;
 use sunbeam_macros;
 
+#[derive(Clone)]
 pub struct ShadowRoot {}
 
-#[derive(Default, sunbeam_macros::ElementTypeUtils)]
+#[derive(Default, Clone, sunbeam_macros::ElementTypeUtils)]
 pub enum HTMLElementType {
     A(a::A),
     Abbr(abbr::Abbr),
@@ -249,6 +250,7 @@ impl HTMLElementType {
     }
 }
 
+#[derive(Clone)]
 pub struct HTMLElement {
     pub element_type: HTMLElementType,
     pub global_attributes: GlobalAttributes,
@@ -312,7 +314,7 @@ impl HTMLElement {
             "html" => Html(html::Html::default()),
             "i" => I(i::I::default()),
             "iframe" => IFrame(iframe::IFrame::default()),
-            "img" => Img(img::Img::default()),
+            "img" | "image" => Img(img::Img::default()),
             "input" => Input(input::Input::default()),
             "ins" => Ins(ins::Ins::default()),
             "kbd" => Kbd(kbd::Kbd::default()),

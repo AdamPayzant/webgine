@@ -1,5 +1,6 @@
 use crate::html_elements::common_attributes;
 
+#[derive(Clone)]
 pub struct Header {}
 
 impl Default for Header {

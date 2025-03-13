@@ -1,6 +1,6 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub enum ListTypeOption {
     #[default]
     Number,
@@ -22,6 +22,7 @@ impl ListTypeOption {
     }
 }
 
+#[derive(Clone)]
 pub struct Ol {
     reversed: bool,
     start: usize,

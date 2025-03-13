@@ -1,6 +1,6 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub enum DecodingOption {
     Sync,
     Async,
@@ -8,13 +8,14 @@ pub enum DecodingOption {
     Auto,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub enum LoadingOption {
     #[default]
     Eager,
     Lazy,
 }
 
+#[derive(Clone)]
 pub struct Img {
     alt: Option<String>,
     crossorigin: common_attributes::CrossOriginOption,

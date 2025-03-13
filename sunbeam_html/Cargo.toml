@@ -7,4 +7,5 @@ edition = "2021"
 members = ["crates/*"]
 
 [dependencies]
+log = "0.4.26"
 sunbeam_macros = { path = "crates/sunbeam_macros" }

@@ -2,6 +2,7 @@ use crate::html_elements::common_attributes;
 
 // Name different due to namespaces, should probably be
 // considered again
+#[derive(Clone)]
 pub struct HtmlOption {
     disabled: bool,
     label: Option<String>,

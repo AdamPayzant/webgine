@@ -1,6 +1,6 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub enum VideoPreloadOption {
     None,
     #[default]
@@ -18,6 +18,7 @@ impl VideoPreloadOption {
     }
 }
 
+#[derive(Clone)]
 pub struct Video {
     autoplay: bool,
     controls: bool,

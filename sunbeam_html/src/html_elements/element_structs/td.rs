@@ -1,5 +1,6 @@
 use crate::html_elements::common_attributes;
 
+#[derive(Clone)]
 pub struct Td {
     colspan: u16,
     headers: Vec<String>, // List of IDs

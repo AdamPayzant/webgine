@@ -1,6 +1,6 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub enum ScriptTypeOption {
     #[default]
     Javascript,
@@ -22,7 +22,9 @@ impl ScriptTypeOption {
     }
 }
 
+#[derive(Clone)]
 pub struct Script {
+    // Attributes
     async_script: bool,
     blocking: Option<common_attributes::BlockingOption>,
     crossorigin: common_attributes::CrossOriginOption,
@@ -34,6 +36,15 @@ pub struct Script {
     referrerpolicy: common_attributes::ReferrerPolicyOption,
     src: Option<String>, // URL
     script_type: ScriptTypeOption,
+
+    // Internal data
+    already_started: bool,
+}
+
+impl Script {
+    pub fn enable_already_started(&mut self) {
+        self.already_started = true;
+    }
 }
 
 impl Default for Script {
@@ -50,6 +61,7 @@ impl Default for Script {
             referrerpolicy: common_attributes::ReferrerPolicyOption::default(),
             src: None,
             script_type: ScriptTypeOption::default(),
+            already_started: false,
         }
     }
 }

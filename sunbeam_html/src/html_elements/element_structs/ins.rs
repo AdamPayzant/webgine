@@ -1,5 +1,6 @@
 use crate::html_elements::common_attributes;
 
+#[derive(Clone)]
 pub struct Ins {
     cite: Option<String>,
     datetime: Option<String>, // Datetime string

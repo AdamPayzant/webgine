@@ -1,11 +1,12 @@
 use crate::html_elements::common_attributes;
 
+#[derive(Clone)]
 pub enum CrossOrigin {
     Anonymous,
     UseCredentials,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub enum PreloadOptions {
     #[default]
     Metadata,
@@ -14,6 +15,7 @@ pub enum PreloadOptions {
     Auto,
 }
 
+#[derive(Clone)]
 pub struct Audio {
     autoplay: bool,
     controls: bool,

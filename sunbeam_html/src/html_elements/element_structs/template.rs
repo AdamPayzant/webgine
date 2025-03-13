@@ -1,6 +1,6 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub enum ShadowrootModeOption {
     #[default]
     Open,
@@ -16,6 +16,7 @@ impl ShadowrootModeOption {
     }
 }
 
+#[derive(Clone)]
 pub struct Template {
     shadowrootmode: ShadowrootModeOption,
     shadowrootclonable: bool,

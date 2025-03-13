@@ -1,5 +1,6 @@
 use crate::html_elements::common_attributes;
 
+#[derive(Clone)]
 pub struct Output {
     output_for: Vec<String>,
     form: Option<String>, // ID

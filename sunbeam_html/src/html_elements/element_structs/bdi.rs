@@ -4,6 +4,7 @@ use crate::html_elements::common_attributes;
  *
  * Ignores parent's dir attribute and uses user agent or it's own
  */
+#[derive(Clone)]
 pub struct BDI {}
 
 impl Default for BDI {

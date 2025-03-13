@@ -1,5 +1,6 @@
 use crate::html_elements::common_attributes;
 
+#[derive(Clone)]
 pub struct Style {
     blocking: Option<common_attributes::BlockingOption>,
     media: Option<String>, // TODO: Need media query type

@@ -1,5 +1,6 @@
 use crate::html_elements::common_attributes;
 
+#[derive(Clone)]
 pub enum LinkAsOption {
     Audio,
     Document,
@@ -36,6 +37,7 @@ impl LinkAsOption {
     }
 }
 
+#[derive(Clone)]
 pub struct Link {
     link_as: Option<LinkAsOption>,
     blocking: Option<common_attributes::BlockingOption>,

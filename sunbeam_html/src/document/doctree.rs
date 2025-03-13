@@ -4,8 +4,11 @@ use crate::document::node;
 // This allows us to have doubly-linked relations without getting into
 // complicated lifetimes or arcs
 //
-// Eventually this should be reassessed, but for now it should provide
-// an acceptable interface if the implementation needs to be replaced
+// Eventually this should be redone. Anytime a node is removed,
+// that array index is set to none for the remainder of the object.
+// This happens because we don't know who holds a doctree node, and it
+// would be better to "waste" memory than swap out a reference under
+// someone's nose.
 pub struct Doctree {
     data: Vec<Option<node::Node>>,
     root_node: Vec<DoctreeNode>,
@@ -20,16 +23,6 @@ impl Doctree {
     }
 
     pub fn add_node(&mut self, node: node::Node) -> DoctreeNode {
-        // Walk to find an open spot
-        let mut i = 0;
-        while i < self.data.len() {
-            if matches!(self.data[i], None) {
-                self.data[i] = Some(node);
-                return DoctreeNode { idx: i };
-            }
-            i += 1;
-        }
-        // Can't find an open slot, return
         self.data.push(Some(node));
 
         DoctreeNode {
@@ -71,6 +64,22 @@ impl Doctree {
         }
 
         self.data[idx] = None;
+    }
+
+    pub fn get_element_name(&self, node: &DoctreeNode) -> Option<String> {
+        if let Some(node) = self.get_node(node) {
+            if let node::NodeType::Element(element) = &node.node_type {
+                Some(element.get_name().to_lowercase())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn get_root_node_list(&self) -> Vec<DoctreeNode> {
+        self.root_node.clone()
     }
 }
 
