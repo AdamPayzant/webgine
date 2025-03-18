@@ -1,6 +1,6 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum KindOptions {
     Subtitles,
     Captions,
@@ -21,7 +21,7 @@ impl KindOptions {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Track {
     default_track: bool,
     kind: Option<KindOptions>,

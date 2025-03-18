@@ -1,14 +1,14 @@
 use crate::document::doctree;
 use crate::html_elements;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DocumentType {
     pub name: String,
     pub public_id: String,
     pub system_id: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum NodeType {
     Text(String),
     Element(html_elements::HTMLElement),
@@ -25,7 +25,7 @@ impl NodeType {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Node {
     pub children: Vec<doctree::DoctreeNode>,
     pub parent: Option<doctree::DoctreeNode>,

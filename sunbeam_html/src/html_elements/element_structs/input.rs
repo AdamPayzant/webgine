@@ -1,6 +1,6 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum PopoverTargetActionOption {
     Hide,
     Show,
@@ -8,7 +8,7 @@ pub enum PopoverTargetActionOption {
     Toggle,
 }
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum InputTypeOption {
     #[default]
     Button,
@@ -66,7 +66,7 @@ impl InputTypeOption {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Input {
     accept: Option<String>, // TODO: Should probably make this it's own type
     alt: Option<String>,

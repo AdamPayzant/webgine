@@ -6,7 +6,7 @@ use crate::lang_system::LangTag;
  *
  * Setting for the auto capitalization option
  */
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum AutoCapitalizeOptions {
     #[default]
     None,
@@ -21,7 +21,7 @@ pub enum AutoCapitalizeOptions {
  * Options for the Direction global attribute to determine if the
  * Text is read based on the user agent, left to right, or right to left
  */
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum DirOptions {
     #[default]
     Auto,
@@ -30,7 +30,7 @@ pub enum DirOptions {
     Rtl,
 }
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum InputModeOptions {
     #[default]
     Text,
@@ -44,7 +44,7 @@ pub enum InputModeOptions {
     Url,
 }
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum ContentEditableOptions {
     #[default]
     False,
@@ -52,7 +52,7 @@ pub enum ContentEditableOptions {
     PlainTextOnly,
 }
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum HiddenState {
     #[default]
     NotHidden,
@@ -60,7 +60,7 @@ pub enum HiddenState {
     UntilFound,
 }
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum PopOverState {
     #[default]
     Auto,
@@ -72,7 +72,7 @@ pub enum PopOverState {
 //       than a pointer though, so optional boxes would probably increase the
 //       size
 // TODO: Relevant strings should be migrated to ids and a lookup engine
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct GlobalAttributes {
     access_key: Option<char>, // This maybe shouldn't be a char
     auto_capitalize: AutoCapitalizeOptions,

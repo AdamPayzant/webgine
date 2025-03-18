@@ -5,7 +5,7 @@ use crate::html_elements::common_attributes;
 /* A - Anchor element
  *
  */
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct A {
     download: Option<String>,
     href: Option<String>,

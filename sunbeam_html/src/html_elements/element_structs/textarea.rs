@@ -1,13 +1,13 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum WrapOptions {
     Hard,
     #[default]
     Soft,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct TextArea {
     autocomplete: common_attributes::AutoComplete,
     autocorrect: bool,

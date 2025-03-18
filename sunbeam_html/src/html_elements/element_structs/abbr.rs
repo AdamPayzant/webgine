@@ -5,7 +5,7 @@ use crate::html_elements::common_attributes;
  * Abbreviation only contain global attributes and child nodes
  * so it's an empty struct
  */
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Abbr {}
 
 impl Default for Abbr {

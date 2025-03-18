@@ -3,7 +3,7 @@ use crate::html_elements::common_attributes;
 /* Address - Contact address element
  *
  */
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Address {}
 
 impl Default for Address {

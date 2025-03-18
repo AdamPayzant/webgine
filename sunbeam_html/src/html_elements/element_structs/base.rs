@@ -1,6 +1,6 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Base {
     href: Option<String>,
     target: common_attributes::Target,

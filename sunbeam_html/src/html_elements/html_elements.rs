@@ -3,10 +3,12 @@ use crate::html_elements::element_structs::*;
 use crate::html_elements::global_attr::GlobalAttributes;
 use sunbeam_macros;
 
-#[derive(Clone)]
+use log;
+
+#[derive(Debug, Clone)]
 pub struct ShadowRoot {}
 
-#[derive(Default, Clone, sunbeam_macros::ElementTypeUtils)]
+#[derive(Default, Clone, Debug, sunbeam_macros::ElementTypeUtils)]
 pub enum HTMLElementType {
     A(a::A),
     Abbr(abbr::Abbr),
@@ -250,7 +252,7 @@ impl HTMLElementType {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct HTMLElement {
     pub element_type: HTMLElementType,
     pub global_attributes: GlobalAttributes,
@@ -376,7 +378,10 @@ impl HTMLElement {
             "var" => Var(var::Var::default()),
             "video" => Video(video::Video::default()),
             "wbr" => Wbr(wbr::Wbr::default()),
-            _ => Unknown,
+            _ => {
+                log::debug!("Unknown element: {}", name);
+                Unknown
+            }
         };
 
         HTMLElement {

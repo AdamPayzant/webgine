@@ -93,7 +93,7 @@ fn new_character_string(c: char) -> HtmlToken {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum FsmState {
     Data,
     RCData,
@@ -253,9 +253,23 @@ macro_rules! emit_token {
     }};
 }
 
+macro_rules! emit_and_reconsume {
+    ($self:ident, $arg:expr) => {{
+        $self.token_buffer.push_back($arg);
+        return;
+    }};
+}
+
 macro_rules! emit_token_no_return {
     ($self:ident, $arg: expr) => {
         $self.token_buffer.push_back($arg);
+    };
+}
+
+// Wraps continue to make the intent more clear
+macro_rules! reconsume {
+    () => {
+        continue;
     };
 }
 
@@ -270,7 +284,7 @@ pub struct Tokenizer {
     token_buffer: VecDeque<HtmlToken>,
 
     temp_buffer: String,
-    open_tag_stack: Vec<String>,
+    pub open_tag_stack: Vec<String>,
     character_reference_code: u32,
 }
 
@@ -327,6 +341,11 @@ impl Tokenizer {
         let mut temp_buf = self.temp_buffer.clone();
 
         while self.idx < self.chars.len() {
+            log::trace!(
+                "tokenizer FSM state: {:?}, parsing character: {}",
+                self.state,
+                self.chars[self.idx]
+            );
             match self.state {
                 Data => match self.chars[self.idx] {
                     '&' => {
@@ -383,17 +402,16 @@ impl Tokenizer {
                     '?' => {
                         self.cur_token = HtmlToken::new(TokenTag::Comment);
                         self.state = BogusComment;
-                        return;
+                        reconsume!();
                     }
                     _ => {
                         if self.chars[self.idx].is_alphabetic() {
                             self.cur_token = HtmlToken::new(TokenTag::StartTag);
                             self.state = TagName;
-                            return;
+                            reconsume!();
                         } else {
-                            emit_token_no_return!(self, new_character_string('<'));
                             self.state = Data;
-                            return;
+                            emit_and_reconsume!(self, new_character_string('<'));
                         }
                     }
                 },
@@ -403,11 +421,11 @@ impl Tokenizer {
                         if self.chars[self.idx].is_alphabetic() {
                             self.cur_token = HtmlToken::new(TokenTag::EndTag);
                             self.state = TagName;
-                            return;
+                            reconsume!();
                         } else {
                             self.cur_token = HtmlToken::new(TokenTag::Comment);
                             self.state = BogusComment;
-                            return;
+                            reconsume!();
                         }
                     }
                 },
@@ -432,21 +450,19 @@ impl Tokenizer {
                         self.state = RCDataEndTagOpen;
                     }
                     _ => {
-                        emit_token_no_return!(self, new_character_string('<'));
                         self.state = RCData;
-                        return;
+                        emit_and_reconsume!(self, new_character_string('<'));
                     }
                 },
                 RCDataEndTagOpen => {
                     if self.chars[self.idx].is_alphabetic() {
                         self.cur_token = HtmlToken::new(TokenTag::EndTag);
                         self.state = RCDataEndTagName;
-                        return;
+                        reconsume!();
                     } else {
-                        emit_token_no_return!(self, new_character_string('<'));
-                        emit_token_no_return!(self, new_character_string('/'));
                         self.state = RCData;
-                        return;
+                        emit_token_no_return!(self, new_character_string('<'));
+                        emit_and_reconsume!(self, new_character_string('/'));
                     }
                 }
                 RCDataEndTagName => {
@@ -498,21 +514,19 @@ impl Tokenizer {
                         self.state = RawTextEndTagOpen;
                     }
                     _ => {
-                        emit_token_no_return!(self, new_character_string('<'));
                         self.state = RawText;
-                        return;
+                        emit_and_reconsume!(self, new_character_string('<'));
                     }
                 },
                 RawTextEndTagOpen => {
                     if self.chars[self.idx].is_alphabetic() {
                         self.cur_token = HtmlToken::new(TokenTag::EndTag);
                         self.state = RawTextEndTagName;
-                        return;
+                        reconsume!();
                     } else {
-                        emit_token_no_return!(self, new_character_string('<'));
-                        emit_token_no_return!(self, new_character_string('/'));
                         self.state = RawText;
-                        return;
+                        emit_token_no_return!(self, new_character_string('<'));
+                        emit_and_reconsume!(self, new_character_string('/'));
                     }
                 }
                 RawTextEndTagName => {
@@ -566,25 +580,22 @@ impl Tokenizer {
                     '!' => {
                         self.state = ScriptDataEscapeStart;
                         emit_token_no_return!(self, new_character_string('<'));
-                        emit_token_no_return!(self, new_character_string('!'));
-                        return;
+                        emit_and_reconsume!(self, new_character_string('!'));
                     }
                     _ => {
-                        emit_token_no_return!(self, new_character_string('<'));
                         self.state = ScriptData;
-                        return;
+                        emit_and_reconsume!(self, new_character_string('<'));
                     }
                 },
                 ScriptDataEndTagOpen => {
                     if self.chars[self.idx].is_alphabetic() {
                         self.cur_token = HtmlToken::new(TokenTag::EndTag);
                         self.state = ScriptDataEndTagName;
-                        return;
+                        reconsume!();
                     } else {
-                        emit_token_no_return!(self, new_character_string('<'));
-                        emit_token_no_return!(self, new_character_string('/'));
                         self.state = ScriptData;
-                        return;
+                        emit_token_no_return!(self, new_character_string('<'));
+                        emit_and_reconsume!(self, new_character_string('/'));
                     }
                 }
                 ScriptDataEndTagName => {
@@ -636,7 +647,7 @@ impl Tokenizer {
                     }
                     _ => {
                         self.state = ScriptData;
-                        return;
+                        reconsume!();
                     }
                 },
                 ScriptDataEscaped => match self.chars[self.idx] {
@@ -695,13 +706,11 @@ impl Tokenizer {
                         if self.chars[self.idx].is_alphabetic() {
                             temp_buf = String::new();
                             self.temp_buffer = String::new();
-                            emit_token_no_return!(self, new_character_string('<'));
                             self.state = ScriptDataDoubleEscapeStart;
-                            return;
+                            emit_and_reconsume!(self, new_character_string('<'));
                         } else {
-                            emit_token_no_return!(self, new_character_string('<'));
                             self.state = ScriptDataEscaped;
-                            return;
+                            emit_and_reconsume!(self, new_character_string('<'));
                         }
                     }
                 },
@@ -709,12 +718,11 @@ impl Tokenizer {
                     if self.chars[self.idx].is_alphabetic() {
                         self.cur_token = HtmlToken::new(TokenTag::EndTag);
                         self.state = ScriptDataEscapedEndTagName;
-                        return;
+                        reconsume!();
                     } else {
-                        emit_token_no_return!(self, new_character_string('<'));
-                        emit_token_no_return!(self, new_character_string('/'));
                         self.state = ScriptDataEscaped;
-                        return;
+                        emit_token_no_return!(self, new_character_string('<'));
+                        emit_and_reconsume!(self, new_character_string('/'));
                     }
                 }
                 ScriptDataEscapedEndTagName => {
@@ -776,7 +784,7 @@ impl Tokenizer {
                             emit_token!(self, new_character_string(self.chars[self.idx]));
                         } else {
                             self.state = ScriptDataEscaped;
-                            return;
+                            reconsume!();
                         }
                     }
                 },
@@ -844,7 +852,7 @@ impl Tokenizer {
                     }
                     _ => {
                         self.state = ScriptDataDoubleEscaped;
-                        return;
+                        reconsume!();
                     }
                 },
                 ScriptDataDoubleEscapeEnd => match self.chars[self.idx] {
@@ -864,7 +872,7 @@ impl Tokenizer {
                             emit_token!(self, new_character_string(self.chars[self.idx]));
                         } else {
                             self.state = ScriptDataDoubleEscaped;
-                            return;
+                            reconsume!();
                         }
                     }
                 },
@@ -872,7 +880,7 @@ impl Tokenizer {
                     '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' => {}
                     '/' | '>' => {
                         self.state = AfterAttributeName;
-                        return;
+                        reconsume!();
                     }
                     '=' => {
                         self.cur_token.attributes.push(HtmlAttribute::new());
@@ -887,13 +895,13 @@ impl Tokenizer {
                     _ => {
                         self.cur_token.attributes.push(HtmlAttribute::new());
                         self.state = AttributeName;
-                        return;
+                        reconsume!();
                     }
                 },
                 AttributeName => match self.chars[self.idx] {
                     '\u{0009}' | '\u{000A}' | '\u{000C}' | '\u{0020}' | '/' | '>' => {
                         self.state = AfterAttributeName;
-                        return;
+                        reconsume!();
                     }
                     '=' => self.state = BeforeAttributeValue,
                     '\u{0000}' => {
@@ -925,7 +933,7 @@ impl Tokenizer {
                     _ => {
                         self.cur_token.attributes.push(HtmlAttribute::new());
                         self.state = AttributeName;
-                        return;
+                        reconsume!();
                     }
                 },
                 BeforeAttributeValue => match self.chars[self.idx] {
@@ -938,7 +946,7 @@ impl Tokenizer {
                     }
                     _ => {
                         self.state = AttributeValueUnquoted;
-                        return;
+                        reconsume!();
                     }
                 },
                 AttributeValueDoubleQuoted => match self.chars[self.idx] {
@@ -1028,7 +1036,7 @@ impl Tokenizer {
                     }
                     _ => {
                         self.state = BeforeAttributeName;
-                        return;
+                        reconsume!();
                     }
                 },
                 SelfClosingStartTag => match self.chars[self.idx] {
@@ -1040,7 +1048,7 @@ impl Tokenizer {
                     }
                     _ => {
                         self.state = BeforeAttributeName;
-                        return;
+                        reconsume!();
                     }
                 },
                 BogusComment => match self.chars[self.idx] {
@@ -1062,21 +1070,16 @@ impl Tokenizer {
                         self.idx += 2;
                         self.cur_token = HtmlToken::new(TokenTag::Comment);
                         self.state = CommentStart;
-
-                        return;
-                    }
-                    if self.idx + 7 < self.chars.len()
+                    } else if self.idx + 7 < self.chars.len()
                         && compare_slices(
-                            &self.chars[self.idx..self.idx + 8],
+                            &self.chars[self.idx..self.idx + 7],
                             &['d', 'o', 'c', 't', 'y', 'p', 'e'],
                             false,
                         )
                     {
-                        self.idx += 8;
+                        self.idx += 7;
                         self.state = Doctype;
-                        return;
-                    }
-                    if self.idx + 7 < self.chars.len()
+                    } else if self.idx + 7 < self.chars.len()
                         && compare_slices(
                             &self.chars[self.idx..self.idx + 8],
                             &['[', 'C', 'D', 'A', 'T', 'a', '['],
@@ -1088,12 +1091,10 @@ impl Tokenizer {
                         //       and it's not an element in HTML namespace.
                         //       If not, create a comment instead
                         self.state = CDataSection;
-                        return;
+                    } else {
+                        self.cur_token = HtmlToken::new(TokenTag::Comment);
+                        self.state = BogusComment;
                     }
-
-                    self.cur_token = HtmlToken::new(TokenTag::Comment);
-                    self.state = BogusComment;
-                    return;
                 }
                 CommentStart => match self.chars[self.idx] {
                     '-' => self.state = CommentStartDash,
@@ -1103,7 +1104,7 @@ impl Tokenizer {
                     }
                     _ => {
                         self.state = Comment;
-                        return;
+                        reconsume!();
                     }
                 },
                 CommentStartDash => match self.chars[self.idx] {
@@ -1115,7 +1116,7 @@ impl Tokenizer {
                     _ => {
                         self.cur_token.data_append('-');
                         self.state = Comment;
-                        return;
+                        reconsume!();
                     }
                 },
                 Comment => match self.chars[self.idx] {
@@ -1135,33 +1136,33 @@ impl Tokenizer {
                     '<' => self.cur_token.data_append('<'),
                     _ => {
                         self.state = Comment;
-                        return;
+                        reconsume!();
                     }
                 },
                 CommentLessThanBang => match self.chars[self.idx] {
                     '-' => self.state = CommentLessThanBangDash,
                     _ => {
                         self.state = Comment;
-                        return;
+                        reconsume!();
                     }
                 },
                 CommentLessThanBangDash => match self.chars[self.idx] {
                     '-' => self.state = CommentLessThanBangDashDash,
                     _ => {
                         self.state = Comment;
-                        return;
+                        reconsume!();
                     }
                 },
                 CommentLessThanBangDashDash => {
                     self.state = CommentEnd;
-                    return;
+                    reconsume!();
                 }
                 CommentEndDash => match self.chars[self.idx] {
                     '-' => self.state = CommentEnd,
                     _ => {
                         self.cur_token.data_append('-');
                         self.state = Comment;
-                        return;
+                        reconsume!();
                     }
                 },
                 CommentEnd => match self.chars[self.idx] {
@@ -1174,7 +1175,7 @@ impl Tokenizer {
                     _ => {
                         self.cur_token.data_append('-');
                         self.state = Comment;
-                        return;
+                        reconsume!();
                     }
                 },
                 CommentEndBang => match self.chars[self.idx] {
@@ -1191,7 +1192,7 @@ impl Tokenizer {
                         self.cur_token.data_append('-');
                         self.cur_token.data_append('!');
                         self.state = Comment;
-                        return;
+                        reconsume!();
                     }
                 },
                 Doctype => match self.chars[self.idx] {
@@ -1200,7 +1201,7 @@ impl Tokenizer {
                     }
                     _ => {
                         self.state = BeforeDoctypeName;
-                        return;
+                        reconsume!();
                     }
                 },
                 BeforeDoctypeName => match self.chars[self.idx] {
@@ -1250,7 +1251,7 @@ impl Tokenizer {
                         {
                             self.idx += 7;
                             self.state = AfterDoctypePublicKeyword;
-                            return;
+                            reconsume!();
                         }
                         if self.idx + 6 < self.chars.len()
                             && compare_slices(
@@ -1260,12 +1261,12 @@ impl Tokenizer {
                             )
                         {
                             self.idx += 7;
-                            return;
+                            reconsume!();
                         }
 
                         self.cur_token.flags.force_quirks = true;
                         self.state = BogusComment;
-                        return;
+                        reconsume!();
                     }
                 },
                 AfterDoctypePublicKeyword => match self.chars[self.idx] {
@@ -1302,7 +1303,7 @@ impl Tokenizer {
                     _ => {
                         self.cur_token.flags.force_quirks = true;
                         self.state = BogusDoctype;
-                        return;
+                        reconsume!();
                     }
                 },
                 BeforeDoctypePublicIndentifier => match self.chars[self.idx] {
@@ -1337,7 +1338,7 @@ impl Tokenizer {
                     _ => {
                         self.cur_token.flags.force_quirks = true;
                         self.state = BogusDoctype;
-                        return;
+                        reconsume!();
                     }
                 },
                 DoctypePublicIdentifierDoubleQuote => match self.chars[self.idx] {
@@ -1465,7 +1466,7 @@ impl Tokenizer {
                     _ => {
                         self.cur_token.flags.force_quirks = true;
                         self.state = BogusDoctype;
-                        return;
+                        reconsume!();
                     }
                 },
                 BetweenDoctypePublicAndSystemIdentifiers => match self.chars[self.idx] {
@@ -1499,7 +1500,7 @@ impl Tokenizer {
                     _ => {
                         self.cur_token.flags.force_quirks = true;
                         self.state = BogusDoctype;
-                        return;
+                        reconsume!();
                     }
                 },
                 AfterDoctypeSystemKeyword => match self.chars[self.idx] {
@@ -1536,7 +1537,7 @@ impl Tokenizer {
                     _ => {
                         self.cur_token.flags.force_quirks = true;
                         self.state = BogusDoctype;
-                        return;
+                        reconsume!();
                     }
                 },
                 BeforeDoctypeSystemIdentifier => match self.chars[self.idx] {
@@ -1571,7 +1572,7 @@ impl Tokenizer {
                     _ => {
                         self.cur_token.flags.force_quirks = true;
                         self.state = BogusDoctype;
-                        return;
+                        reconsume!();
                     }
                 },
                 DoctypeSystemIdentifierDoubleQuote => match self.chars[self.idx] {
@@ -1650,7 +1651,7 @@ impl Tokenizer {
                     }
                     _ => {
                         self.state = BogusDoctype;
-                        return;
+                        reconsume!();
                     }
                 },
                 BogusDoctype => match self.chars[self.idx] {
@@ -1669,9 +1670,8 @@ impl Tokenizer {
                 CDataSectionBracket => match self.chars[self.idx] {
                     ']' => self.state = CDataSectionEnd,
                     _ => {
-                        emit_token_no_return!(self, new_character_string(']'));
                         self.state = CDataSection;
-                        return;
+                        emit_and_reconsume!(self, new_character_string(']'));
                     }
                 },
                 CDataSectionEnd => match self.chars[self.idx] {
@@ -1680,10 +1680,9 @@ impl Tokenizer {
                     }
                     '>' => self.state = Data,
                     _ => {
-                        emit_token_no_return!(self, new_character_string(']'));
-                        emit_token_no_return!(self, new_character_string(']'));
                         self.state = CDataSection;
-                        return;
+                        emit_token_no_return!(self, new_character_string(']'));
+                        emit_and_reconsume!(self, new_character_string(']'));
                     }
                 },
                 CharacterReference => {
@@ -1697,7 +1696,7 @@ impl Tokenizer {
                         _ => {
                             if self.chars[self.idx].is_alphanumeric() {
                                 self.state = NamedCharacterReference;
-                                return;
+                                reconsume!();
                             } else {
                                 if is_part_of_attribute(self.return_state) {
                                     temp_buf
@@ -1710,7 +1709,7 @@ impl Tokenizer {
                                 }
 
                                 self.state = self.return_state;
-                                return;
+                                reconsume!();
                             }
                         }
                     }
@@ -1726,7 +1725,7 @@ impl Tokenizer {
                         }
                     } else {
                         self.state = self.return_state;
-                        return;
+                        reconsume!();
                     }
                 }
                 NumericCharacterReference => {
@@ -1739,14 +1738,14 @@ impl Tokenizer {
                         }
                         _ => {
                             self.state = DecimalCharacterReferenceStart;
-                            return;
+                            reconsume!();
                         }
                     }
                 }
                 HexadecimalCharacterReferenceStart => match self.chars[self.idx] {
                     '0'..='9' | 'A'..='F' | 'a'..='f' => {
                         self.state = HexadecimalCharacterReference;
-                        return;
+                        reconsume!();
                     }
                     _ => {
                         if is_part_of_attribute(self.return_state) {
@@ -1759,13 +1758,13 @@ impl Tokenizer {
                             });
                         }
                         self.state = self.return_state;
-                        return;
+                        reconsume!();
                     }
                 },
                 DecimalCharacterReferenceStart => match self.chars[self.idx] {
                     '0'..='9' => {
                         self.state = DecimalCharacterReference;
-                        return;
+                        reconsume!();
                     }
                     _ => {
                         if is_part_of_attribute(self.return_state) {
@@ -1778,7 +1777,7 @@ impl Tokenizer {
                             });
                         }
                         self.state = self.return_state;
-                        return;
+                        reconsume!();
                     }
                 },
                 HexadecimalCharacterReference => match self.chars[self.idx] {
@@ -1789,7 +1788,7 @@ impl Tokenizer {
                     ';' => self.state = NumericCharacterReferenceEnd,
                     _ => {
                         self.state = NumericCharacterReferenceEnd;
-                        return;
+                        reconsume!();
                     }
                 },
                 DecimalCharacterReference => match self.chars[self.idx] {
@@ -1800,58 +1799,58 @@ impl Tokenizer {
                     ';' => self.state = NumericCharacterReferenceEnd,
                     _ => {
                         self.state = NumericCharacterReferenceEnd;
-                        return;
+                        reconsume!();
                     }
                 },
                 NumericCharacterReferenceEnd => {
                     match self.character_reference_code {
-                // Null check
-                0x00 |
-                // Surrogate check
-                0xD800..=0xDBFF | 0xDC00..=0xDFFF | 0x10FFFF.. => {
-                    self.character_reference_code = 0xFFFD;
-                }
-                // // NonCharacter Check
-                // 0xFDD0..=0xFDEF
-                // | 0xFFFE
-                // | 0xFFFF
-                // | 0x1FFFE
-                // | 0x1FFFF
-                // | 0x2FFFF
-                // | 0x3FFFE
-                // | 0x3FFFF
-                // | 0x4FFFE
-                // | 0x4FFFF
-                // | 0x5FFFE
-                // | 0x5FFFF
-                // | 0x6FFFE
-                // | 0x6FFFF
-                // | 0x7FFFE
-                // | 0x7FFFF
-                // | 0x8FFFE
-                // | 0x8FFFF
-                // | 0x9FFFE
-                // | 0x9FFFF
-                // | 0xAFFFE
-                // | 0xAFFFF
-                // | 0xBFFFE
-                // | 0xBFFFF
-                // | 0xCFFFE
-                // | 0xCFFFF
-                // | 0xDFFFE
-                // | 0xDFFFF
-                // | 0xEFFFE
-                // | 0xEFFFF
-                // | 0xFFFFE
-                // | 0xFFFFF
-                // | 0x10FFFE => {}
-                // // Control Character Check
-                // 0x0001..0x0020 | 0x007f..=0x009f => {}
-                _ => {
-                    self.character_reference_code =
-                        lookup_character_reference(self.character_reference_code);
-                }
-            };
+                        // Null check
+                        0x00 |
+                        // Surrogate check
+                        0xD800..=0xDBFF | 0xDC00..=0xDFFF | 0x10FFFF.. => {
+                            self.character_reference_code = 0xFFFD;
+                        }
+                        // // NonCharacter Check
+                        // 0xFDD0..=0xFDEF
+                        // | 0xFFFE
+                        // | 0xFFFF
+                        // | 0x1FFFE
+                        // | 0x1FFFF
+                        // | 0x2FFFF
+                        // | 0x3FFFE
+                        // | 0x3FFFF
+                        // | 0x4FFFE
+                        // | 0x4FFFF
+                        // | 0x5FFFE
+                        // | 0x5FFFF
+                        // | 0x6FFFE
+                        // | 0x6FFFF
+                        // | 0x7FFFE
+                        // | 0x7FFFF
+                        // | 0x8FFFE
+                        // | 0x8FFFF
+                        // | 0x9FFFE
+                        // | 0x9FFFF
+                        // | 0xAFFFE
+                        // | 0xAFFFF
+                        // | 0xBFFFE
+                        // | 0xBFFFF
+                        // | 0xCFFFE
+                        // | 0xCFFFF
+                        // | 0xDFFFE
+                        // | 0xDFFFF
+                        // | 0xEFFFE
+                        // | 0xEFFFF
+                        // | 0xFFFFE
+                        // | 0xFFFFF
+                        // | 0x10FFFE => {}
+                        // // Control Character Check
+                        // 0x0001..0x0020 | 0x007f..=0x009f => {}
+                        _ => {
+                            self.character_reference_code =
+                                lookup_character_reference(self.character_reference_code);
+                        }
+                    };
                     temp_buf = String::new();
                     self.temp_buffer = String::new();
                     // This cast should probably be error checked
@@ -1871,7 +1870,7 @@ impl Tokenizer {
                     self.state = self.return_state;
                 }
                 _ => {
-                    println!("Unsupported tag found");
+                    log::error!("Unsupported tag found");
                 }
             };
             self.idx += 1;

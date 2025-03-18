@@ -55,11 +55,15 @@ enum InsertionMode {
 
 struct OpenNodeStack {
     pub stack: Vec<doctree::DoctreeNode>,
+    tokenizer_tracker: Vec<bool>, // This is a terrible hack, should be removed in a refactor
 }
 
 impl OpenNodeStack {
     pub fn new() -> OpenNodeStack {
-        OpenNodeStack { stack: Vec::new() }
+        OpenNodeStack {
+            stack: Vec::new(),
+            tokenizer_tracker: Vec::new(),
+        }
     }
 
     pub fn push(
@@ -69,17 +73,21 @@ impl OpenNodeStack {
         node_name: String,
     ) {
         self.stack.push(node);
+        self.tokenizer_tracker.push(true);
         tokenizer.push_open_tag(node_name);
     }
 
     pub fn push_self_only(&mut self, node: doctree::DoctreeNode) -> usize {
         self.stack.push(node);
+        self.tokenizer_tracker.push(false);
 
         self.stack.len() - 1
     }
 
     pub fn pop(&mut self, tokenizer: &mut tokenizer::Tokenizer) -> Option<DoctreeNode> {
-        tokenizer.pop_open_tag();
+        if let Some(true) = self.tokenizer_tracker.pop() {
+            tokenizer.pop_open_tag();
+        }
         self.stack.pop()
     }
 
@@ -250,7 +258,7 @@ impl Parser {
             element.add_attribute(val.name, val.value);
         });
 
-        node::Node::new(node::NodeType::Unknown("".to_string()))
+        node::Node::new(node::NodeType::Element(element))
     }
 
     fn clear_stack_back_to_table(&mut self, doc: &mut Document) {
@@ -469,6 +477,7 @@ impl Parser {
         token: HtmlToken,
     ) -> DoctreeNode {
         let node_name = token.data.clone();
+        log::trace!("Inserting token: {}", node_name);
         let is_self_closing = token.flags.self_closing;
 
         let mut element = self.create_element_from_token(token);
@@ -480,6 +489,7 @@ impl Parser {
 
             let n = doctree.add_node(element);
             if let Some(p) = parent {
+                log::trace!("Adding child to parent {}", p.idx);
                 if let Some(parent_node) = doctree.get_mut_node(p) {
                     parent_node.add_child(n);
                 }
@@ -641,6 +651,7 @@ impl Parser {
                 if token.data == "html" {
                     // Create a new token and push it onto the stack of open nodes
                     self.insert_element_from_token(&mut doc.doctree, true, false, token);
+                    self.insertion_mode = InsertionMode::BeforeHead;
                     return;
                 }
             }
@@ -649,8 +660,8 @@ impl Parser {
                 _ => return,
             },
             _ => {}
-        }
-
+        };
+        log::trace!("In anything else case");
         // Anything else case
         self.open_node_stack.push(
             &mut self.tokenizer,
@@ -757,6 +768,7 @@ impl Parser {
                     }
                     "title" => {
                         self.insert_element_from_token(&mut doc.doctree, false, false, token);
+                        self.original_insertion_mode = self.insertion_mode;
                         self.insertion_mode = InsertionMode::Text;
                         return;
                     }
@@ -2788,6 +2800,11 @@ impl Parser {
                 }
                 None => self.tokenizer.get_next_token(),
             };
+            log::trace!(
+                "In fsm state {:?}, parsing tokentag {:?}",
+                self.insertion_mode,
+                token.tag
+            );
             // TODO: Check if we're in a foreign context or not
             //       For now follow normal insertion rules
 
@@ -2828,12 +2845,19 @@ impl Parser {
 mod test {
 
     use super::*;
+    use crate::document;
     use std::fs;
     use std::path::PathBuf;
 
+    // Tests
     #[test]
     fn test_empty_parse_no_panic() {
-        parse_document("");
+        let mut d = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        d.push("test_resources/empty.html");
+
+        let html = fs::read_to_string(d).unwrap();
+
+        parse_document(&html);
     }
 
     #[test]
@@ -2842,7 +2866,6 @@ mod test {
         d.push("test_resources/basic.html");
 
         let html = fs::read_to_string(d).unwrap();
-        // println!("{}", html);
 
         let doc = parse_document(&html);
         let root_nodes = doc.doctree.get_root_node_list();
@@ -2861,8 +2884,20 @@ mod test {
                 continue;
             }
             root_html_found = true;
-            println!("{}", node.children.len());
-            assert!(node.children.len() >= 2)
+
+            assert!(node.children.len() >= 2);
+
+            let mut head_found = false;
+            let mut body_found = false;
+            for c in node.children.clone() {
+                if is_entry_element!(doc, &c, HTMLElementType::Head(_)) {
+                    head_found = true;
+                }
+                if is_entry_element!(doc, &c, HTMLElementType::Body(_)) {
+                    body_found = true;
+                }
+            }
+            assert!(head_found && body_found);
         }
         assert!(root_html_found);
     }

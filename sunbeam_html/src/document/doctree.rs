@@ -1,4 +1,5 @@
 use crate::document::node;
+use log;
 
 // Uses an array backed tree where we pass out indexes instead of references.
 // This allows us to have doubly-linked relations without getting into
@@ -9,6 +10,7 @@ use crate::document::node;
 // This happens because we don't know who holds a doctree node, and it
 // would be better to "waste" memory than swap out a reference under
 // someone's nose.
+#[derive(Debug)]
 pub struct Doctree {
     data: Vec<Option<node::Node>>,
     root_node: Vec<DoctreeNode>,
@@ -23,6 +25,7 @@ impl Doctree {
     }
 
     pub fn add_node(&mut self, node: node::Node) -> DoctreeNode {
+        log::trace!("Inserting node {:?}", node);
         self.data.push(Some(node));
 
         DoctreeNode {
@@ -81,11 +84,15 @@ impl Doctree {
     pub fn get_root_node_list(&self) -> Vec<DoctreeNode> {
         self.root_node.clone()
     }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct DoctreeNode {
-    idx: usize,
+    pub idx: usize,
 }
 
 impl PartialEq for DoctreeNode {

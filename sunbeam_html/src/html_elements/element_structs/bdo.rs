@@ -5,7 +5,7 @@ use crate::html_elements::common_attributes;
  * Options for the Direction attribute to determine if the
  * Text is read based on the user agent, left to right, or right to left
  */
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum DirOptions {
     Ltr,
     Rtl,
@@ -15,7 +15,7 @@ pub enum DirOptions {
  *
  *
  */
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Bdo {
     dir: DirOptions,
 }

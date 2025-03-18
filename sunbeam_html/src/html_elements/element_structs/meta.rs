@@ -1,6 +1,6 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Meta {
     charset: Option<String>, // TODO: Add charset type
     content: Option<String>,

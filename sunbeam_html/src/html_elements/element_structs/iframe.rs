@@ -1,13 +1,13 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub enum IFrameLoadingOption {
     #[default]
     Eager,
     Lazy,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct SandboxItems {
     allow_downloads: bool,
     allow_forms: bool,
@@ -72,7 +72,7 @@ impl SandboxItems {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct IFrame {
     allow: Vec<String>, // TODO: This be a enum instead of a string
     height: usize,
