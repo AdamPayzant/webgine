@@ -1,0 +1,11 @@
+[package]
+name = "coral_app"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+log = "0.4.26"
+pollster = "0.4.0"
+sunbeam_html = { path = "../sunbeam_html" }
+wgpu = "24.0.1"
+winit = "0.30.9"

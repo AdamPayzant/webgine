@@ -1,7 +1,7 @@
 # webgine
 
 A collection of components with the intent to eventually build out a functioning web browser.
-Current development is focused on the sunbeam html engine.
+Current focus is on the groundwork for the coral application and the display interface in sunbeam.
 
 ## Component Breakdown
 
