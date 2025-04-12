@@ -1,11 +1,11 @@
-mod document;
-mod html_elements;
+pub mod display_data;
+pub mod document;
+pub mod html_elements;
+pub mod parser;
+
+pub use document::document::Document;
+
 mod lang_system;
-mod parser;
-
-struct HtmlMetadata {}
-
-// fn new_document() -> Document {}
 
 #[cfg(test)]
 mod tests {

@@ -1,6 +1,5 @@
 #[derive(Debug, Clone)]
 pub struct Rel {
-    void: bool,
     alternate: bool,
     author: bool,
     bookmark: bool,
@@ -35,7 +34,6 @@ pub struct Rel {
 impl Default for Rel {
     fn default() -> Self {
         Rel {
-            void: false,
             alternate: false,
             author: false,
             bookmark: false,

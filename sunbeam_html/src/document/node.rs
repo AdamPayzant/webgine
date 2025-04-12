@@ -1,3 +1,9 @@
+use pollster;
+
+use crate::display_data::{
+    self,
+    display_box::{self, DisplayBox},
+};
 use crate::document::doctree;
 use crate::html_elements;
 
@@ -62,5 +68,31 @@ impl Node {
 
     pub fn add_attribute(&mut self, name: String, value: String) {
         self.node_type.add_attribute(name, value);
+    }
+
+    pub async fn get_node_displaybox(&self, doctree: &doctree::Doctree) -> DisplayBox {
+        let mut res = DisplayBox::new();
+
+        match &self.node_type {
+            NodeType::Text(s) => {
+                res.data = display_box::DisplayBoxData::Text(display_data::text::Text {
+                    data: s.clone(),
+                    font: None,
+                });
+            }
+            // TODO: Get display information for element
+            _ => {}
+        };
+
+        let mut futures = Vec::new();
+        for n in &self.children {
+            if let Some(node) = doctree.get_node(&n) {
+                futures.push(node.get_node_displaybox(doctree));
+            }
+        }
+        res.children = futures.into_iter().map(|f| pollster::block_on(f)).collect();
+        // TODO: Go through the children and correct positioning
+
+        res
     }
 }

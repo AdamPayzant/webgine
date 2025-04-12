@@ -1,5 +1,8 @@
+use crate::display_data::display_box::DisplayBox;
 use crate::document::node;
 use log;
+
+use pollster;
 
 // Uses an array backed tree where we pass out indexes instead of references.
 // This allows us to have doubly-linked relations without getting into
@@ -87,6 +90,17 @@ impl Doctree {
 
     pub fn len(&self) -> usize {
         self.data.len()
+    }
+
+    pub fn get_display_data(&self) -> Vec<DisplayBox> {
+        let mut futures = Vec::new();
+        for n in &self.root_node {
+            if let Some(node) = self.get_node(&n) {
+                futures.push(node.get_node_displaybox(self));
+            }
+        }
+
+        futures.into_iter().map(|f| pollster::block_on(f)).collect()
     }
 }
 

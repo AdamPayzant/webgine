@@ -7,13 +7,28 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowAttributes, WindowId};
 
-mod log_setup;
-mod wgpu_handler;
+use gfx;
 
-#[derive(Default)]
+mod config_engine;
+mod log_setup;
+mod pane;
+
 struct App<'a> {
     window: Option<Arc<Window>>,
-    state: Option<wgpu_handler::State<'a>>,
+    state: Option<gfx::GFXState<'a>>,
+    config: config_engine::Config,
+    panes: Vec<pane::pane::Pane>,
+}
+
+impl Default for App<'_> {
+    fn default() -> Self {
+        App {
+            window: None,
+            state: None,
+            config: config_engine::Config::default(),
+            panes: Vec::new(),
+        }
+    }
 }
 
 impl ApplicationHandler for App<'_> {
@@ -24,7 +39,7 @@ impl ApplicationHandler for App<'_> {
 
         let window = Arc::new(event_loop.create_window(attributes).unwrap());
         self.window = Some(window.clone());
-        self.state = Some(pollster::block_on(wgpu_handler::State::new(window.clone())));
+        self.state = Some(pollster::block_on(gfx::GFXState::new(window.clone())));
     }
 
     fn window_event(
@@ -85,5 +100,6 @@ fn main() {
 
     event_loop.set_control_flow(ControlFlow::Wait);
     let mut app = App::default();
+    app.config = config_engine::Config::new();
     event_loop.run_app(&mut app);
 }

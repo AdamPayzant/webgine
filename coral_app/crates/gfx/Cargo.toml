@@ -1,0 +1,10 @@
+[package]
+name = "gfx"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+wgpu = "24.0.1"
+winit = "0.30.9"
+bytemuck = { version = "1.22", features = ["derive"] }
+glyphon = "0.8.0"

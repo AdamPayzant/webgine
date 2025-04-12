@@ -4,8 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+bytemuck = { version = "1.22", features = ["derive"] }
+glyphon = "0.8.0"
 log = "0.4.26"
 pollster = "0.4.0"
+serde = { version = "1.0.219", features = ["derive"] }
 sunbeam_html = { path = "../sunbeam_html" }
+toml = "0.8.20"
 wgpu = "24.0.1"
 winit = "0.30.9"
+gfx = { path = "crates/gfx" }
