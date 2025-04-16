@@ -1,57 +1,15 @@
 use bytemuck;
 use glyphon;
 use std::sync::Arc;
-use wgpu::{self, util::DeviceExt};
+use wgpu;
 use winit::{event::WindowEvent, window::Window};
 
+mod utils;
 mod vertex;
 use vertex::Vertex;
 
-fn create_rect_vertices(pos: [f32; 2], size: [f32; 2], color: [f32; 4]) -> [Vertex; 6] {
-    let [x, y] = pos;
-    let [w, h] = size;
-
-    [
-        Vertex {
-            position: [x, y],
-            color,
-        },
-        Vertex {
-            position: [x, y + h],
-            color,
-        },
-        Vertex {
-            position: [x + w, y],
-            color,
-        },
-        Vertex {
-            position: [x + w, y],
-            color,
-        },
-        Vertex {
-            position: [x, y + h],
-            color,
-        },
-        Vertex {
-            position: [x + w, y + h],
-            color,
-        },
-    ]
-}
-
-#[derive(Clone, Debug)]
-pub enum GFXRenderCommand {
-    Rect {
-        position: [f32; 2],
-        size: [f32; 2],
-        color: [f32; 4],
-    },
-    Text {
-        position: [f32; 2],
-        content: String,
-        color: [f32; 4],
-    },
-}
+pub mod render_cmds;
+use render_cmds::GFXRenderCommand;
 
 pub struct GFXState<'a> {
     surface: wgpu::Surface<'a>,
@@ -62,9 +20,8 @@ pub struct GFXState<'a> {
     pub window: Arc<Window>,
 
     render_pipeline: wgpu::RenderPipeline,
-    render_commands: Vec<GFXRenderCommand>,
-
-    frame_view: wgpu::TextureView,
+    render_commands_outer: Vec<GFXRenderCommand>, // For the outer UI of the browser
+    render_commands_inner: Vec<GFXRenderCommand>, // For the contents of the pane
 
     vertex_buffer: wgpu::Buffer,
 
@@ -185,7 +142,8 @@ impl<'a> GFXState<'a> {
             cache: None,
         });
 
-        let mut render_commands = Vec::new();
+        let mut render_commands_outer = Vec::new();
+        let mut render_commands_inner = Vec::new();
 
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Vertex Buffer"),
@@ -195,7 +153,7 @@ impl<'a> GFXState<'a> {
         });
 
         // TODO: Switch this to bgr
-        let swapchain_format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let swapchain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
 
         let mut font_system = glyphon::FontSystem::new();
         let swash_cache = glyphon::SwashCache::new();
@@ -216,39 +174,21 @@ impl<'a> GFXState<'a> {
             Some((config.height as f64 * window.scale_factor()) as f32),
         );
 
-        let diffuse_texture = device.create_texture(&wgpu::TextureDescriptor {
-            size: wgpu::Extent3d::default(),
-            mip_level_count: 1, // We'll talk about this a little later
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            // Most images are stored using sRGB, so we need to reflect that here.
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            // TEXTURE_BINDING tells wgpu that we want to use this texture in shaders
-            // COPY_DST means that we want to copy data to this texture
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_DST
-                | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            label: Some("diffuse_texture"),
-            // This is the same as with the SurfaceConfig. It
-            // specifies what texture formats can be used to
-            // create TextureViews for this texture. The base
-            // texture format (Rgba8UnormSrgb in this case) is
-            // always supported. Note that using a different
-            // texture format is not supported on the WebGL2
-            // backend.
-            view_formats: &[],
-        });
-        let frame_view = diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        render_commands.push(GFXRenderCommand::Rect {
+        // render_commands_inner.push(GFXRenderCommand::Rect {
+        //     position: [0.5, 0.2],
+        //     size: [0.4, 0.4],
+        //     color: [1.0, 0.0, 0.0, 0.0],
+        // });
+        render_commands_inner.push(GFXRenderCommand::Outline {
             position: [0.5, 0.2],
             size: [0.4, 0.4],
-            color: [0.0, 0.0, 0.0, 0.0],
+            thickness: 0.2,
+            color: [1.0, 0.0, 0.0, 0.0],
         });
-        render_commands.push(GFXRenderCommand::Text {
-            position: [0.2, 0.2],
+        render_commands_inner.push(GFXRenderCommand::Text {
+            position: [0.1, 0.1],
             content: "Hello World".to_owned(),
-            color: [0.0, 0.0, 0.0, 0.0],
+            color: [0.0, 0.0, 0.0, 1.0],
         });
 
         Self {
@@ -259,7 +199,8 @@ impl<'a> GFXState<'a> {
             size,
             window,
             render_pipeline,
-            render_commands,
+            render_commands_outer,
+            render_commands_inner,
 
             vertex_buffer,
 
@@ -269,8 +210,6 @@ impl<'a> GFXState<'a> {
             atlas,
             text_renderer,
             text_buffer,
-
-            frame_view,
         }
     }
 
@@ -304,7 +243,7 @@ impl<'a> GFXState<'a> {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("UI Render Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view, // <- use actual surface view
+                view: &view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
@@ -316,16 +255,30 @@ impl<'a> GFXState<'a> {
             occlusion_query_set: None,
         });
 
+        self.viewport.update(
+            &self.queue,
+            glyphon::Resolution {
+                width: self.window.inner_size().width,
+                height: self.window.inner_size().height,
+            },
+        );
+
         render_pass.set_pipeline(&self.render_pipeline);
 
-        for cmd in self.render_commands.clone() {
+        let render_cmds = [
+            self.render_commands_outer.clone(),
+            self.render_commands_inner.clone(),
+        ]
+        .concat();
+
+        for cmd in render_cmds {
             match cmd {
                 GFXRenderCommand::Rect {
                     position,
                     size,
                     color,
                 } => {
-                    let vertices = create_rect_vertices(position, size, color);
+                    let vertices = utils::create_rect_vertices(position, size, color);
                     self.queue.write_buffer(
                         &mut self.vertex_buffer,
                         0,
@@ -334,6 +287,24 @@ impl<'a> GFXState<'a> {
 
                     render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                     render_pass.draw(0..6, 0..1);
+                }
+                GFXRenderCommand::Outline {
+                    position,
+                    size,
+                    thickness,
+                    color,
+                } => {
+                    let vertices = utils::create_outline(position, size, thickness, color);
+                    for vert in vertices {
+                        self.queue.write_buffer(
+                            &mut self.vertex_buffer,
+                            0,
+                            bytemuck::cast_slice(&vert),
+                        );
+
+                        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                        render_pass.draw(0..6, 0..1);
+                    }
                 }
                 GFXRenderCommand::Text {
                     position,
@@ -357,19 +328,14 @@ impl<'a> GFXState<'a> {
                             buffer: &self.text_buffer,
                             left: position[0],
                             top: position[1],
-                            scale: 32.0,
+                            scale: 1.0,
                             bounds: glyphon::TextBounds {
                                 left: 0,
                                 top: 0,
                                 right: self.window.inner_size().width as i32,
                                 bottom: self.window.inner_size().height as i32,
                             },
-                            default_color: glyphon::Color::rgba(
-                                color[1] as u8,
-                                color[2] as u8,
-                                color[3] as u8,
-                                color[0] as u8,
-                            ),
+                            default_color: utils::float_colors_to_glyphon_rgba(color),
                             custom_glyphs: &[],
                         }],
                         &mut self.swash_cache,
@@ -392,7 +358,16 @@ impl<'a> GFXState<'a> {
         drop(render_pass);
         self.queue.submit(Some(encoder.finish()));
         output.present();
+        self.atlas.trim();
 
         Ok(())
+    }
+
+    pub fn set_outer_render_cmds(&mut self, cmds: Vec<GFXRenderCommand>) {
+        self.render_commands_outer = cmds;
+    }
+
+    pub fn set_inner_render_cmds(&mut self, cmds: Vec<GFXRenderCommand>) {
+        self.render_commands_inner = cmds;
     }
 }
