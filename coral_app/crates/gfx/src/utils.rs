@@ -2,6 +2,21 @@ use glyphon;
 
 use crate::vertex::Vertex;
 
+pub const VERTEX_BUFFER_MAX_RECT: u64 = 10;
+
+pub fn compute_vertex_buffer_offset(offset: u64) -> u64 {
+    offset * std::mem::size_of::<Vertex>() as u64 * 6
+}
+
+pub fn new_vertex_buffer(device: &wgpu::Device) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Vertex Buffer"),
+        size: (std::mem::size_of::<Vertex>() as u64 * 6) * VERTEX_BUFFER_MAX_RECT,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
 pub fn float_colors_to_glyphon_rgba(colors: [f32; 4]) -> glyphon::Color {
     glyphon::Color::rgba(
         (colors[0] * 255.0) as u8,
@@ -48,13 +63,9 @@ pub fn create_outline(
     size: [f32; 2],
     thickness: f32,
     color: [f32; 4],
-) -> [[Vertex; 6]; 3] {
+) -> [[Vertex; 6]; 4] {
     let [x, y] = pos;
     let [w, h] = size;
-
-    let mut color2 = [1.0, 1.0, 0.0, 0.0];
-    let mut color3 = [1.0, 0.0, 1.0, 0.0];
-    let mut color4 = [1.0, 0.0, 0.0, 1.0];
 
     [
         [
@@ -86,80 +97,80 @@ pub fn create_outline(
         [
             Vertex {
                 position: [x + w + thickness, y],
-                color: color2,
+                color,
             },
             Vertex {
                 position: [x + w + thickness, y + h],
-                color: color2,
+                color,
             },
             Vertex {
                 position: [x + w, y],
-                color: color2,
+                color,
             },
             Vertex {
                 position: [x + w, y],
-                color: color2,
+                color,
             },
             Vertex {
                 position: [x + w + thickness, y + h],
-                color: color2,
+                color,
             },
             Vertex {
                 position: [x + w, y + h],
-                color: color2,
+                color,
             },
         ],
         [
             Vertex {
                 position: [x + thickness, y],
-                color: color3,
+                color,
             },
             Vertex {
                 position: [x + thickness, y + h],
-                color: color3,
+                color,
             },
             Vertex {
                 position: [x, y],
-                color: color3,
+                color,
             },
             Vertex {
                 position: [x, y],
-                color: color3,
+                color,
             },
             Vertex {
                 position: [x + thickness, y + h],
-                color: color3,
+                color,
             },
             Vertex {
                 position: [x, y + h],
-                color: color3,
+                color,
             },
         ],
-        // [
-        //     Vertex {
-        //         position: [x, y + h],
-        //         color: color4,
-        //     },
-        //     Vertex {
-        //         position: [x, y + h + thickness],
-        //         color: color4,
-        //     },
-        //     Vertex {
-        //         position: [x + w, y + h],
-        //         color: color4,
-        //     },
-        //     Vertex {
-        //         position: [x + w, y + h],
-        //         color: color4,
-        //     },
-        //     Vertex {
-        //         position: [x, y + h + thickness],
-        //         color: color4,
-        //     },
-        //     Vertex {
-        //         position: [x + w, y + h + thickness],
-        //         color: color4,
-        //     },
-        // ],
+        [
+            Vertex {
+                position: [x, y + h],
+                color,
+            },
+            Vertex {
+                position: [x, y + h + thickness],
+                color,
+            },
+            Vertex {
+                position: [x + w, y + h],
+                color,
+            },
+            Vertex {
+                position: [x + w, y + h],
+                color,
+            },
+            Vertex {
+                position: [x, y + h + thickness],
+                color,
+            },
+            Vertex {
+                position: [x + w, y + h + thickness],
+                color,
+            },
+        ],
     ]
 }
