@@ -62,10 +62,15 @@ pub fn create_outline(
     pos: [f32; 2],
     size: [f32; 2],
     thickness: f32,
+    window_width: u32,
+    window_height: u32,
     color: [f32; 4],
 ) -> [[Vertex; 6]; 4] {
     let [x, y] = pos;
     let [w, h] = size;
+
+    let thickness_x = (thickness / window_width as f32) * 2.0;
+    let thickness_y = (thickness / window_height as f32) * 2.0;
 
     [
         [
@@ -74,7 +79,7 @@ pub fn create_outline(
                 color,
             },
             Vertex {
-                position: [x, y + thickness],
+                position: [x, y + thickness_y],
                 color,
             },
             Vertex {
@@ -86,25 +91,21 @@ pub fn create_outline(
                 color,
             },
             Vertex {
-                position: [x, y + thickness],
+                position: [x, y + thickness_y],
                 color,
             },
             Vertex {
-                position: [x + w, y + thickness],
+                position: [x + w, y + thickness_y],
                 color,
             },
         ],
         [
             Vertex {
-                position: [x + w + thickness, y],
+                position: [x + w + thickness_x, y],
                 color,
             },
             Vertex {
-                position: [x + w + thickness, y + h],
-                color,
-            },
-            Vertex {
-                position: [x + w, y],
+                position: [x + w + thickness_x, y + h + thickness_y],
                 color,
             },
             Vertex {
@@ -112,21 +113,25 @@ pub fn create_outline(
                 color,
             },
             Vertex {
-                position: [x + w + thickness, y + h],
+                position: [x + w, y],
                 color,
             },
             Vertex {
-                position: [x + w, y + h],
+                position: [x + w + thickness_x, y + h + thickness_y],
+                color,
+            },
+            Vertex {
+                position: [x + w, y + h + thickness_y],
                 color,
             },
         ],
         [
             Vertex {
-                position: [x + thickness, y],
+                position: [x + thickness_x, y],
                 color,
             },
             Vertex {
-                position: [x + thickness, y + h],
+                position: [x + thickness_x, y + h],
                 color,
             },
             Vertex {
@@ -138,7 +143,7 @@ pub fn create_outline(
                 color,
             },
             Vertex {
-                position: [x + thickness, y + h],
+                position: [x + thickness_x, y + h],
                 color,
             },
             Vertex {
@@ -152,7 +157,7 @@ pub fn create_outline(
                 color,
             },
             Vertex {
-                position: [x, y + h + thickness],
+                position: [x, y + h + thickness_y],
                 color,
             },
             Vertex {
@@ -164,11 +169,11 @@ pub fn create_outline(
                 color,
             },
             Vertex {
-                position: [x, y + h + thickness],
+                position: [x, y + h + thickness_y],
                 color,
             },
             Vertex {
-                position: [x + w, y + h + thickness],
+                position: [x + w, y + h + thickness_y],
                 color,
             },
         ],

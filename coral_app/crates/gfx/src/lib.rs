@@ -168,27 +168,27 @@ impl<'a> GFXState<'a> {
             Some((config.height as f64 * window.scale_factor()) as f32),
         );
 
-        render_commands_inner.push(GFXRenderCommand::Rect {
-            position: [0.5, 0.2],
-            size: [0.4, 0.4],
-            color: [1.0, 0.0, 0.0, 0.0],
-        });
-        render_commands_inner.push(GFXRenderCommand::Rect {
-            position: [-0.5, -0.2],
-            size: [0.4, 0.4],
-            color: [1.0, 0.0, 1.0, 0.0],
-        });
-        render_commands_inner.push(GFXRenderCommand::Outline {
-            position: [0.0, 0.0],
-            size: [0.4, 0.4],
-            thickness: 0.2,
-            color: [1.0, 0.0, 0.0, 0.0],
-        });
-        render_commands_inner.push(GFXRenderCommand::Text {
-            position: [0.1, 0.1],
-            content: "Hello World".to_owned(),
-            color: [0.0, 0.0, 0.0, 1.0],
-        });
+        // render_commands_inner.push(GFXRenderCommand::Rect {
+        //     position: [0.5, 0.2],
+        //     size: [0.4, 0.4],
+        //     color: [1.0, 0.0, 0.0, 0.0],
+        // });
+        // render_commands_inner.push(GFXRenderCommand::Rect {
+        //     position: [-0.5, -0.2],
+        //     size: [0.4, 0.4],
+        //     color: [1.0, 0.0, 1.0, 0.0],
+        // });
+        // render_commands_inner.push(GFXRenderCommand::Outline {
+        //     position: [0.0, 0.0],
+        //     size: [0.4, 0.4],
+        //     thickness: 4.0,
+        //     color: [1.0, 0.0, 0.0, 0.0],
+        // });
+        // render_commands_inner.push(GFXRenderCommand::Text {
+        //     position: [0.1, 0.1],
+        //     content: "Hello World".to_owned(),
+        //     color: [0.0, 0.0, 0.0, 1.0],
+        // });
 
         Self {
             surface,
@@ -322,7 +322,14 @@ impl<'a> GFXState<'a> {
                     thickness,
                     color,
                 } => {
-                    let vertices = utils::create_outline(position, size, thickness, color);
+                    let vertices = utils::create_outline(
+                        position,
+                        size,
+                        thickness,
+                        self.window.inner_size().width,
+                        self.window.inner_size().height,
+                        color,
+                    );
                     for vert in vertices {
                         if !(offset < utils::VERTEX_BUFFER_MAX_RECT) {
                             cur_vert_buffer += 1;
