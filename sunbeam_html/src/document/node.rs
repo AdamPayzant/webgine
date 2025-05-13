@@ -7,6 +7,8 @@ use crate::display_data::{
 use crate::document::doctree;
 use crate::html_elements;
 
+use super::document;
+
 #[derive(Clone, Debug)]
 pub struct DocumentType {
     pub name: String,
@@ -70,7 +72,7 @@ impl Node {
         self.node_type.add_attribute(name, value);
     }
 
-    pub async fn get_node_displaybox(&self, doctree: &doctree::Doctree) -> DisplayBox {
+    pub async fn get_node_displaybox(&self, doc: &document::Document) -> DisplayBox {
         let mut res = DisplayBox::new();
 
         match &self.node_type {
@@ -79,6 +81,7 @@ impl Node {
                     data: s.clone(),
                     font: None,
                 });
+                // TODO: Eventually format based on styling
             }
             // TODO: Get display information for element
             _ => {}
@@ -86,10 +89,11 @@ impl Node {
 
         let mut futures = Vec::new();
         for n in &self.children {
-            if let Some(node) = doctree.get_node(&n) {
-                futures.push(node.get_node_displaybox(doctree));
+            if let Some(node) = doc.doctree.get_node(&n) {
+                futures.push(node.get_node_displaybox(&doc));
             }
         }
+
         res.children = futures.into_iter().map(|f| pollster::block_on(f)).collect();
         // TODO: Go through the children and correct positioning
 

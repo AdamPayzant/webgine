@@ -1,6 +1,6 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Del {
     cite: Option<String>,
     datetime: Option<String>, // TODO: Probably should implement an explicit date-string type

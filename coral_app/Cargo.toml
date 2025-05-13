@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 bytemuck = { version = "1.22", features = ["derive"] }
 glyphon = "0.8.0"
-log = "0.4.26"
+log = "0.4"
 pollster = "0.4.0"
 serde = { version = "1.0.219", features = ["derive"] }
 sunbeam_html = { path = "../sunbeam_html" }

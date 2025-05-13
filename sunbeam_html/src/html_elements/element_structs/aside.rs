@@ -1,6 +1,6 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Aside {}
 
 impl Default for Aside {

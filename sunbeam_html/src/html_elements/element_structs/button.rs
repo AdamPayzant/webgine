@@ -1,6 +1,6 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum FormMethodOption {
     #[default]
     None,
@@ -9,7 +9,7 @@ pub enum FormMethodOption {
     Diaglog,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum FormTargetOption {
     #[default]
     SelfTarget,
@@ -18,14 +18,14 @@ pub enum FormTargetOption {
     Top,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PopovertargetActionType {
     Hide,
     Show,
     Toggle,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum ButtonType {
     #[default]
     Submit,
@@ -33,7 +33,7 @@ pub enum ButtonType {
     Button,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Button {
     autofocus: bool,
     disabled: bool,

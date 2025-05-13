@@ -1,6 +1,6 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum ShapeType {
     #[default]
     Default,
@@ -13,7 +13,7 @@ pub enum ShapeType {
 /* Area - Image map area element
  *
  */
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Area {
     alt: Option<String>,
     coords: Vec<u32>,

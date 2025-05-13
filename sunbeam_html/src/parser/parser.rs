@@ -25,6 +25,11 @@ pub fn parse_document(data: &str) -> Document {
     parser.parse_html()
 }
 
+enum FormattingNode {
+    Node(doctree::DoctreeNode),
+    Marker,
+}
+
 #[derive(Default, Clone, Copy, Debug)]
 enum InsertionMode {
     #[default]
@@ -128,6 +133,23 @@ macro_rules! is_entry_element {
     };
 }
 
+macro_rules! is_entry_marker {
+    ($doc:expr, $entry:expr) => {
+        match $entry {
+            FormattingNode::Node(n) => is_entry_element!(
+                $doc,
+                n,
+                |HTMLElementType::Object(_)| HTMLElementType::Template(_)
+                    | HTMLElementType::Td(_)
+                    | HTMLElementType::Th(_)
+                    | HTMLElementType::Caption(_) // | HTMLElementType::Applet(_)
+                                                  // | HTMLElementType::Marquee(_)
+            ),
+            FormattingNode::Marker => true,
+        }
+    };
+}
+
 fn element_name_matches(doc: &Document, entry: &doctree::DoctreeNode, name: &str) -> bool {
     if let Some(node) = doc.doctree.get_node(entry) {
         if let NodeType::Element(element) = &node.node_type {
@@ -197,6 +219,8 @@ pub struct Parser {
     script_nesting_level: u32,
 
     pending_character_tokens: Vec<HtmlToken>,
+
+    active_formatting_elements: Vec<FormattingNode>,
 }
 
 impl Parser {
@@ -220,6 +244,8 @@ impl Parser {
             script_nesting_level: 0,
 
             pending_character_tokens: Vec::new(),
+
+            active_formatting_elements: Vec::new(),
         }
     }
 
@@ -243,6 +269,8 @@ impl Parser {
             script_nesting_level: 0,
 
             pending_character_tokens: Vec::new(),
+
+            active_formatting_elements: Vec::new(),
         }
     }
 
@@ -432,7 +460,7 @@ impl Parser {
                 break;
             }
         }
-        // TODO: Clear list of active formatting elements back to marker
+        self.clear_active_formatting_to_marker(doc);
         self.insertion_mode = InsertionMode::InRow;
     }
 
@@ -466,6 +494,124 @@ impl Parser {
             }
         }
         false
+    }
+
+    fn push_to_active_formatting_elements(&mut self, doc: &Document, node: doctree::DoctreeNode) {
+        let cur_element = match doc.doctree.get_node(&node) {
+            Some(en) => match &en.node_type {
+                NodeType::Element(element_data) => element_data,
+                _ => return,
+            },
+            // This is a strange case, maybe log in the future...
+            None => return,
+        };
+
+        let mut found = 0;
+        let mut position = self.active_formatting_elements.len() - 1;
+        for e in self.active_formatting_elements.iter().rev() {
+            if is_entry_marker!(doc, e) {
+                break;
+            }
+            let ent = match e {
+                FormattingNode::Node(e) => e,
+                FormattingNode::Marker => return, // ERROR
+            };
+            let entry = match doc.doctree.get_node(ent) {
+                Some(en) => match &en.node_type {
+                    NodeType::Element(element_data) => element_data,
+                    _ => return,
+                },
+                // This is a strange case, maybe log in the future...
+                None => continue,
+            };
+            if std::mem::discriminant(&cur_element.element_type)
+                != std::mem::discriminant(&entry.element_type)
+            {
+                continue;
+            }
+            // TODO: Check the namespace
+            // TODO: Check the attributes
+
+            found += 1;
+            if found == 3 {
+                self.active_formatting_elements.remove(position);
+                break;
+            }
+            position -= 1;
+        }
+
+        self.active_formatting_elements
+            .push(FormattingNode::Node(node));
+    }
+
+    fn push_marker_to_active_formatting_elements(&mut self, doc: &Document) {
+        self.active_formatting_elements.push(FormattingNode::Marker);
+    }
+
+    fn reconstruct_active_formatting_elements(&mut self, doc: &Document) {
+        // TODO: This is incomplete
+        //     let mut e = match self.active_formatting_elements.last() {
+        //         Some(e) => e,
+        //         None => return,
+        //     };
+        //     if is_entry_marker!(doc, e) || self.open_node_stack.stack.contains(e) {
+        //         return;
+        //     }
+        //     let mut pos = self.active_formatting_elements.len() - 1;
+
+        //     while pos != 0 {
+        //         pos -= 1;
+        //         e = match self.active_formatting_elements.get(pos) {
+        //             Some(e) => e,
+        //             None => return, // TODO: Not sure what the best way to handle this is
+        //         };
+
+        //         if !is_entry_marker!(doc, e) && !self.open_node_stack.stack.contains(e) {
+        //             continue;
+        //         }
+
+        //         pos += 1;
+        //         e = match self.active_formatting_elements.get(pos) {
+        //             Some(e) => e,
+        //             None => return, // TODO: Not sure what the best way to handle this is
+        //         };
+        //         break;
+        //     }
+
+        //     loop {
+        //         if pos != 0 {
+        //             break;
+        //         }
+
+        //         // Insert for the element entry created
+        //         let new_entry = match doc.doctree.get_node(e) {
+        //             Some(e) => e.clone(),
+        //             None => {
+        //                 // ERROR
+        //                 return;
+        //             }
+        //         };
+        //         // Replace the entry in with list with new entry for element
+
+        //         // Advance
+        //         pos += 1;
+        //         e = match self.active_formatting_elements.get(pos) {
+        //             Some(e) => e,
+        //             None => return, // TODO: Not sure what the best way to handle this is
+        //         };
+        //         if pos == self.active_formatting_elements.len() - 1 {
+        //             break;
+        //         }
+        //     }
+    }
+
+    fn clear_active_formatting_to_marker(&mut self, doc: &Document) {
+        while let Some(e) = self.active_formatting_elements.last() {
+            if is_entry_marker!(doc, e) {
+                break;
+            }
+            self.active_formatting_elements.pop();
+        }
     }
 
     // Node Insertion functions
@@ -979,12 +1125,12 @@ impl Parser {
                         return;
                     }
                     "\u{0009}" | "\u{000A}" | "\u{000C}" | "\u{000D}" | "\u{0020}" => {
-                        // TODO: Reconstruct the active formatting element
+                        self.reconstruct_active_formatting_elements(doc);
                         self.insert_character_token(doc, token);
                         return;
                     }
                     _ => {
-                        // TODO: Reconstruct the active formatting element
+                        self.reconstruct_active_formatting_elements(doc);
                         self.insert_character_token(doc, token);
                         // TODO: Set the frameset ok flag to not okay
                         return;
@@ -1209,23 +1355,25 @@ impl Parser {
                         }
                     }
 
-                    // TODO: Reconstruct active formatting elements
+                    self.reconstruct_active_formatting_elements(doc);
                     self.insert_element_from_token(&mut doc.doctree, false, false, token);
                     // TODO: Set frameset ok flag to not okay
                     return;
                 }
                 "a" => {
-                    // TODO: Add list of active formatting elements and check for a elements
-                    // TODO: Reconstruct list of active formatting
-                    self.insert_element_from_token(&mut doc.doctree, false, false, token);
-                    // TODO: push onto the list of active formatting elements
+                    // TODO: check for a elements in active formatting elements
+                    self.reconstruct_active_formatting_elements(doc);
+                    let node =
+                        self.insert_element_from_token(&mut doc.doctree, false, false, token);
+                    self.push_to_active_formatting_elements(doc, node);
                     return;
                 }
                 "b" | "big" | "code" | "em" | "font" | "i" | "s" | "small" | "strike"
                 | "strong" | "tt" | "u" => {
-                    // TODO: Reconstruct the active formatting elements
-                    self.insert_element_from_token(&mut doc.doctree, false, false, token);
-                    // TODO: Push onto the list of active formatting
+                    self.reconstruct_active_formatting_elements(doc);
+                    let node =
+                        self.insert_element_from_token(&mut doc.doctree, false, false, token);
+                    self.push_to_active_formatting_elements(doc, node);
                     return;
                 }
                 // "nobr" => {}
@@ -1238,13 +1386,13 @@ impl Parser {
                     return;
                 }
                 "area" | "br" | "embed" | "img" | "image" | "keygen" | "wbr" => {
-                    // TODO: Reconstruct the active formatting element
+                    self.reconstruct_active_formatting_elements(doc);
                     self.insert_element_from_token(&mut doc.doctree, false, true, token);
                     // TODO: Set the frameset-ok flag to not ok
                     return;
                 }
                 "input" => {
-                    // TODO: Reconstruct the active formatting element
+                    self.reconstruct_active_formatting_elements(doc);
                     self.insert_element_from_token(&mut doc.doctree, false, true, token.clone());
                     if token
                         .attributes
@@ -1291,7 +1439,7 @@ impl Parser {
                     }
                 }
                 "select" => {
-                    // TODO: Reconstruct active formatting
+                    self.reconstruct_active_formatting_elements(doc);
                     self.insert_element_from_token(&mut doc.doctree, false, false, token);
                     // TODO: Set frameset no  ok
                     self.insertion_mode = if matches!(
@@ -1314,7 +1462,7 @@ impl Parser {
                             self.open_node_stack.pop(&mut self.tokenizer);
                         }
                     }
-                    // TODO: Reconstruct active formatting
+                    self.reconstruct_active_formatting_elements(doc);
                     self.insert_element_from_token(&mut doc.doctree, false, false, token);
                     return;
                 }
@@ -1328,7 +1476,7 @@ impl Parser {
                     // TODO: Implement MathML
                 }
                 "svg" => {
-                    // TODO: Reconstruct active formatting
+                    self.reconstruct_active_formatting_elements(doc);
                     // TODO: Adjust svg attributes
                     // TODO: Adjust foreign attributes
                     // TODO: Insert a foreign element for the token
@@ -1339,7 +1487,7 @@ impl Parser {
                     return;
                 }
                 _ => {
-                    // TODO: Reconstruct the active formatting elements
+                    self.reconstruct_active_formatting_elements(doc);
                     self.insert_element_from_token(&mut doc.doctree, false, false, token);
                 }
             },
@@ -1545,7 +1693,7 @@ impl Parser {
                     // "applet" | "marquee" | "object" => {}
                     "br" => {
                         // Error: Parse error
-                        // TODO: Reconstruct the active formatting element
+                        self.reconstruct_active_formatting_elements(doc);
                         self.insert_element_from_token(&mut doc.doctree, false, true, token);
                         // TODO: Set the frameset-ok flag to not ok
                         return;
@@ -1676,7 +1824,7 @@ impl Parser {
             TokenTag::StartTag => match token.data.as_str() {
                 "caption" => {
                     self.clear_stack_back_to_table(doc);
-                    // TODO: Insert a marker at the end of the list of active formatting elements
+                    self.push_marker_to_active_formatting_elements(doc);
                     self.insert_character_token(doc, token);
                     self.insertion_mode = InsertionMode::InCaption;
                     return;
@@ -1868,7 +2016,7 @@ impl Parser {
                                 break;
                             }
                         }
-                        // TODO: Clear the list of active formatting elements up to the last marker
+                        self.clear_active_formatting_to_marker(doc);
                         self.insertion_mode = InsertionMode::InTable;
                         return;
                     }
@@ -1891,7 +2039,7 @@ impl Parser {
                                 break;
                             }
                         }
-                        // TODO: Clear the list of active formatting elements up to the last marker
+                        self.clear_active_formatting_to_marker(doc);
                         self.insertion_mode = InsertionMode::InTable;
                         self.reconsume_token = Some(token);
                         return;
@@ -1926,7 +2074,7 @@ impl Parser {
                                 break;
                             }
                         }
-                        // TODO: Clear the list of active formatting elements up to the last marker
+                        self.clear_active_formatting_to_marker(doc);
                         self.insertion_mode = InsertionMode::InTable;
                         self.reconsume_token = Some(token);
                         return;
@@ -2088,7 +2236,7 @@ impl Parser {
                     self.clear_stack_back_to_table_row(doc);
                     self.insert_element_from_token(&mut doc.doctree, false, false, token);
                     self.insertion_mode = InsertionMode::InCell;
-                    // TODO: insert marker to list of active formatting elements
+                    self.push_marker_to_active_formatting_elements(doc);
                     return;
                 }
                 "caption" | "col" | "colgroup" | "tbody" | "tfoot" | "thead" | "tr" => {
@@ -2205,7 +2353,7 @@ impl Parser {
                         }
                     }
 
-                    // TODO: Clear list of active formatting elements up to last marker
+                    self.clear_active_formatting_to_marker(doc);
                     self.insertion_mode = InsertionMode::InRow;
                     return;
                 }
@@ -2531,7 +2679,7 @@ impl Parser {
                         break;
                     }
                 }
-                // TODO: Clear list of active formatting elements to marker
+                self.clear_active_formatting_to_marker(doc);
                 // TODO: Pop last entry in template insertion mode stack
                 self.reconsume_token = Some(token);
                 return;

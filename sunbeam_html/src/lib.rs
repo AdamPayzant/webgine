@@ -2,8 +2,10 @@ pub mod display_data;
 pub mod document;
 pub mod html_elements;
 pub mod parser;
+pub mod types;
 
 pub use document::document::Document;
+pub use parser::parser::parse_document;
 
 mod lang_system;
 

@@ -92,11 +92,11 @@ impl Doctree {
         self.data.len()
     }
 
-    pub fn get_display_data(&self) -> Vec<DisplayBox> {
+    pub fn get_display_data(&self, doc: &super::document::Document) -> Vec<DisplayBox> {
         let mut futures = Vec::new();
         for n in &self.root_node {
             if let Some(node) = self.get_node(&n) {
-                futures.push(node.get_node_displaybox(self));
+                futures.push(node.get_node_displaybox(doc));
             }
         }
 

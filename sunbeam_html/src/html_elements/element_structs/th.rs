@@ -1,6 +1,6 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ScopeOptions {
     Row,
     Col,
@@ -20,7 +20,7 @@ impl ScopeOptions {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Th {
     abbr: Option<String>,
     colspan: u16,

@@ -1,6 +1,6 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum ScriptTypeOption {
     #[default]
     Javascript,
@@ -22,7 +22,7 @@ impl ScriptTypeOption {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Script {
     // Attributes
     async_script: bool,

@@ -8,7 +8,7 @@ use log;
 #[derive(Debug, Clone)]
 pub struct ShadowRoot {}
 
-#[derive(Default, Clone, Debug, sunbeam_macros::ElementTypeUtils)]
+#[derive(Default, Clone, Debug, sunbeam_macros::ElementTypeUtils, PartialEq)]
 pub enum HTMLElementType {
     A(a::A),
     Abbr(abbr::Abbr),

@@ -1,6 +1,6 @@
 use crate::html_elements::common_attributes;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Source {
     mime_type: Option<String>, // TODO: Change when I have mime type system
     src: Option<String>,       // URL

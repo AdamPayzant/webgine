@@ -1,4 +1,4 @@
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Rel {
     alternate: bool,
     author: bool,
@@ -108,7 +108,7 @@ impl Rel {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum ReferrerPolicyOption {
     NoReferrer,
     NoReferrerWhenDowngrade,
@@ -137,7 +137,7 @@ impl ReferrerPolicyOption {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum Target {
     #[default]
     TargetSelf,
@@ -161,7 +161,7 @@ impl Target {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MediaControlList {
     nodownloads: bool,
     nofullscreen: bool,
@@ -192,7 +192,7 @@ impl MediaControlList {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum FetchPriorityOption {
     High,
     Low,
@@ -210,7 +210,7 @@ impl FetchPriorityOption {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum CrossOriginOption {
     #[default]
     None,
@@ -227,7 +227,7 @@ impl CrossOriginOption {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum HttpEquivalent {
     ContentSecurityPolicy,
     ContentType,
@@ -250,7 +250,7 @@ impl HttpEquivalent {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BlockingOption {
     Render,
 }
@@ -264,7 +264,7 @@ impl BlockingOption {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum AutoComplete {
     #[default]
     Off,

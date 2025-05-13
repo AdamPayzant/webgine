@@ -7,6 +7,6 @@ edition = "2021"
 members = ["crates/*"]
 
 [dependencies]
-log = "0.4.26"
+log = "0.4"
 sunbeam_macros = { path = "crates/sunbeam_macros" }
 pollster = "0.4.0"

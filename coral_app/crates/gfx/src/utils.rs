@@ -1,5 +1,6 @@
 use glyphon;
 
+use crate::GFXRenderCommand;
 use crate::vertex::Vertex;
 
 pub const VERTEX_BUFFER_MAX_RECT: u64 = 10;
@@ -24,6 +25,17 @@ pub fn float_colors_to_glyphon_rgba(colors: [f32; 4]) -> glyphon::Color {
         (colors[2] * 255.0) as u8,
         (colors[3] * 255.0) as u8,
     )
+}
+
+pub fn clip_space_to_absolute(pos: [f32; 2], window_width: u32, window_height: u32) -> [f32; 2] {
+    [
+        ((pos[0] + 1.0) / 2.0) * window_width as f32,
+        ((pos[1] + 1.0) / 2.0) * window_height as f32,
+    ]
+}
+
+pub fn absolute_to_clip_space(pos: [f32; 2]) -> [f32; 2] {
+    [(pos[0] * 2.0 - 1.0), (1.0 - pos[1] * 2.0)]
 }
 
 pub fn create_rect_vertices(pos: [f32; 2], size: [f32; 2], color: [f32; 4]) -> [Vertex; 6] {
@@ -178,4 +190,35 @@ pub fn create_outline(
             },
         ],
     ]
+}
+
+pub fn get_size_of_text(
+    cmd: GFXRenderCommand,
+    text_buffer: &mut glyphon::Buffer,
+    font_system: &mut glyphon::FontSystem,
+) -> (f32, f32) {
+    let content = match cmd {
+        GFXRenderCommand::Text {
+            position,
+            content,
+            color,
+        } => content,
+        _ => return (0.0, 0.0),
+    };
+    text_buffer.set_text(
+        font_system,
+        &content,
+        glyphon::Attrs::new().family(glyphon::Family::SansSerif),
+        glyphon::Shaping::Advanced,
+    );
+    text_buffer.shape_until_scroll(font_system, true);
+
+    let line_height = text_buffer.lines.len() as f32 * text_buffer.metrics().line_height;
+    let layout_runs = text_buffer.layout_runs();
+    let mut run_width: f32 = 0.;
+    for run in layout_runs {
+        run_width = run_width.max(run.line_w);
+    }
+
+    (run_width, line_height)
 }

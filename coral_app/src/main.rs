@@ -17,7 +17,9 @@ struct App<'a> {
     window: Option<Arc<Window>>,
     state: Option<gfx::GFXState<'a>>,
     config: config_engine::Config,
+
     panes: Vec<pane::pane::Pane>,
+    active_pane: usize,
 }
 
 impl Default for App<'_> {
@@ -27,6 +29,7 @@ impl Default for App<'_> {
             state: None,
             config: config_engine::Config::default(),
             panes: Vec::new(),
+            active_pane: 0,
         }
     }
 }
@@ -40,6 +43,9 @@ impl ApplicationHandler for App<'_> {
         let window = Arc::new(event_loop.create_window(attributes).unwrap());
         self.window = Some(window.clone());
         self.state = Some(pollster::block_on(gfx::GFXState::new(window.clone())));
+
+        // TODO: Make this more generic
+        self.panes.push(pane::pane::Pane::new_from_file(""));
     }
 
     fn window_event(
@@ -63,6 +69,11 @@ impl ApplicationHandler for App<'_> {
                 self.window.as_ref().unwrap().request_redraw();
 
                 if let Some(state) = self.state.as_mut() {
+                    if let Some(active) = self.panes.get_mut(self.active_pane) {
+                        active.generate_render_cmds(state);
+                        state.set_inner_render_cmds(active.render_cmds.clone());
+                    }
+
                     state.update();
                     match state.render() {
                         Ok(_) => {}
@@ -91,9 +102,6 @@ impl ApplicationHandler for App<'_> {
 }
 
 fn main() {
-    unsafe {
-        env::set_var("WGPU_ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER", "1");
-    }
     log_setup::setup();
 
     let event_loop = EventLoop::new().unwrap();

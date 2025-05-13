@@ -1,5 +1,6 @@
 use bytemuck;
 use glyphon;
+use log;
 use std::sync::Arc;
 use wgpu;
 use winit::{event::WindowEvent, window::Window};
@@ -147,7 +148,7 @@ impl<'a> GFXState<'a> {
 
         let vertex_buffer = utils::new_vertex_buffer(&device);
 
-        let swapchain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
+        let swapchain_format = wgpu::TextureFormat::Rgba8UnormSrgb;
 
         let mut font_system = glyphon::FontSystem::new();
         let swash_cache = glyphon::SwashCache::new();
@@ -168,16 +169,6 @@ impl<'a> GFXState<'a> {
             Some((config.height as f64 * window.scale_factor()) as f32),
         );
 
-        // render_commands_inner.push(GFXRenderCommand::Rect {
-        //     position: [0.5, 0.2],
-        //     size: [0.4, 0.4],
-        //     color: [1.0, 0.0, 0.0, 0.0],
-        // });
-        // render_commands_inner.push(GFXRenderCommand::Rect {
-        //     position: [-0.5, -0.2],
-        //     size: [0.4, 0.4],
-        //     color: [1.0, 0.0, 1.0, 0.0],
-        // });
         // render_commands_inner.push(GFXRenderCommand::Outline {
         //     position: [0.0, 0.0],
         //     size: [0.4, 0.4],
@@ -185,7 +176,7 @@ impl<'a> GFXState<'a> {
         //     color: [1.0, 0.0, 0.0, 0.0],
         // });
         // render_commands_inner.push(GFXRenderCommand::Text {
-        //     position: [0.1, 0.1],
+        //     position: [0.01, -0.1],
         //     content: "Hello World".to_owned(),
         //     color: [0.0, 0.0, 0.0, 1.0],
         // });
@@ -300,7 +291,11 @@ impl<'a> GFXState<'a> {
                         }
                     };
 
-                    let vertices = utils::create_rect_vertices(position, size, color);
+                    let vertices = utils::create_rect_vertices(
+                        utils::absolute_to_clip_space(position),
+                        size,
+                        color,
+                    );
                     let byte_offset = utils::compute_vertex_buffer_offset(offset);
                     let vertex_data_size = std::mem::size_of::<Vertex>() * 6;
                     self.queue.write_buffer(
@@ -323,7 +318,7 @@ impl<'a> GFXState<'a> {
                     color,
                 } => {
                     let vertices = utils::create_outline(
-                        position,
+                        utils::absolute_to_clip_space(position),
                         size,
                         thickness,
                         self.window.inner_size().width,
@@ -373,6 +368,7 @@ impl<'a> GFXState<'a> {
                     content,
                     color,
                 } => {
+                    log::debug!("Drawing text {}", content);
                     self.text_buffer.set_text(
                         &mut self.font_system,
                         &content,
@@ -431,5 +427,9 @@ impl<'a> GFXState<'a> {
 
     pub fn set_inner_render_cmds(&mut self, cmds: Vec<GFXRenderCommand>) {
         self.render_commands_inner = cmds;
+    }
+
+    pub fn get_text_buffer(&mut self) -> &mut glyphon::Buffer {
+        &mut self.text_buffer
     }
 }
