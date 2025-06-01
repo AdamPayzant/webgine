@@ -1,3 +1,7 @@
+use crate::display_data::{
+    self,
+    display_box::{self, DisplayBox},
+};
 use crate::html_elements::common_attributes::Element;
 use crate::html_elements::element_structs::*;
 use crate::html_elements::global_attr::GlobalAttributes;
@@ -409,5 +413,9 @@ impl HTMLElement {
 
     pub fn get_name(&self) -> &str {
         self.element_type.get_name()
+    }
+
+    pub fn get_display_box(&self) -> DisplayBox {
+        DisplayBox::new()
     }
 }

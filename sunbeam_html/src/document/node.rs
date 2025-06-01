@@ -1,11 +1,14 @@
 use pollster;
 
-use crate::display_data::{
-    self,
-    display_box::{self, DisplayBox},
-};
 use crate::document::doctree;
 use crate::html_elements;
+use crate::{
+    display_data::{
+        self,
+        display_box::{self, DisplayBox},
+    },
+    html_elements::HTMLElementType,
+};
 
 use super::document;
 
@@ -82,6 +85,13 @@ impl Node {
                     font: None,
                 });
                 // TODO: Eventually format based on styling
+            }
+            NodeType::Element(e) => {
+                if matches!(e.element_type, HTMLElementType::Head(_)) {
+                    // Don't render anything under head
+                    return res;
+                }
+                res = e.get_display_box();
             }
             // TODO: Get display information for element
             _ => {}

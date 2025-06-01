@@ -18,6 +18,13 @@ pub fn new_vertex_buffer(device: &wgpu::Device) -> wgpu::Buffer {
     })
 }
 
+pub fn new_text_buffer(
+    font_system: &mut glyphon::FontSystem,
+    metrics: glyphon::Metrics,
+) -> glyphon::Buffer {
+    glyphon::Buffer::new(font_system, metrics)
+}
+
 pub fn float_colors_to_glyphon_rgba(colors: [f32; 4]) -> glyphon::Color {
     glyphon::Color::rgba(
         (colors[0] * 255.0) as u8,
@@ -192,12 +199,27 @@ pub fn create_outline(
     ]
 }
 
-pub fn get_size_of_text(
-    cmd: GFXRenderCommand,
-    text_buffer: &mut glyphon::Buffer,
+pub fn create_default_text_buffer(
+    content: &str,
     font_system: &mut glyphon::FontSystem,
-) -> (f32, f32) {
-    let content = match cmd {
+    size: [f64; 2],
+) -> glyphon::Buffer {
+    let mut buf = glyphon::Buffer::new(font_system, glyphon::Metrics::new(30.0, 42.0));
+    buf.set_size(font_system, Some(size[0] as f32), Some(size[1] as f32));
+
+    buf.set_text(
+        font_system,
+        &content,
+        glyphon::Attrs::new().family(glyphon::Family::SansSerif),
+        glyphon::Shaping::Advanced,
+    );
+    buf.shape_until_scroll(font_system, true);
+
+    buf
+}
+
+pub fn get_size_of_text(cmd: &GFXRenderCommand) -> (f32, f32) {
+    let text_buffer = match cmd {
         GFXRenderCommand::Text {
             position,
             content,
@@ -205,13 +227,6 @@ pub fn get_size_of_text(
         } => content,
         _ => return (0.0, 0.0),
     };
-    text_buffer.set_text(
-        font_system,
-        &content,
-        glyphon::Attrs::new().family(glyphon::Family::SansSerif),
-        glyphon::Shaping::Advanced,
-    );
-    text_buffer.shape_until_scroll(font_system, true);
 
     let line_height = text_buffer.lines.len() as f32 * text_buffer.metrics().line_height;
     let layout_runs = text_buffer.layout_runs();

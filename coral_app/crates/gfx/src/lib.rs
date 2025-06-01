@@ -5,7 +5,7 @@ use std::sync::Arc;
 use wgpu;
 use winit::{event::WindowEvent, window::Window};
 
-mod utils;
+pub mod utils;
 mod vertex;
 use vertex::Vertex;
 
@@ -25,6 +25,7 @@ pub struct GFXState<'a> {
     render_commands_inner: Vec<GFXRenderCommand>, // For the contents of the pane
 
     vertex_buffers: Vec<wgpu::Buffer>,
+    text_buffers: Vec<glyphon::Buffer>,
 
     font_system: glyphon::FontSystem,
     swash_cache: glyphon::SwashCache,
@@ -193,6 +194,7 @@ impl<'a> GFXState<'a> {
             render_commands_inner,
 
             vertex_buffers: vec![vertex_buffer],
+            text_buffers: Vec::new(),
 
             font_system,
             swash_cache,
@@ -219,6 +221,12 @@ impl<'a> GFXState<'a> {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        // self.render_commands_inner.push(GFXRenderCommand::Text {
+        //     position: [0.01, -0.1],
+        //     content: "Hello World".to_owned(),
+        //     color: [0.0, 0.0, 0.0, 1.0],
+        // });
+
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
@@ -263,9 +271,10 @@ impl<'a> GFXState<'a> {
 
         let mut cur_vert_buffer: usize = 0;
         let mut offset = 0;
+        let mut text_areas: Vec<glyphon::TextArea> = Vec::new();
 
-        for cmd in render_cmds {
-            match cmd {
+        for cmd in &render_cmds {
+            match &cmd {
                 GFXRenderCommand::Rect {
                     position,
                     size,
@@ -292,9 +301,9 @@ impl<'a> GFXState<'a> {
                     };
 
                     let vertices = utils::create_rect_vertices(
-                        utils::absolute_to_clip_space(position),
-                        size,
-                        color,
+                        utils::absolute_to_clip_space(*position),
+                        *size,
+                        *color,
                     );
                     let byte_offset = utils::compute_vertex_buffer_offset(offset);
                     let vertex_data_size = std::mem::size_of::<Vertex>() * 6;
@@ -318,12 +327,12 @@ impl<'a> GFXState<'a> {
                     color,
                 } => {
                     let vertices = utils::create_outline(
-                        utils::absolute_to_clip_space(position),
-                        size,
-                        thickness,
+                        utils::absolute_to_clip_space(*position),
+                        *size,
+                        *thickness,
                         self.window.inner_size().width,
                         self.window.inner_size().height,
-                        color,
+                        *color,
                     );
                     for vert in vertices {
                         if !(offset < utils::VERTEX_BUFFER_MAX_RECT) {
@@ -368,50 +377,44 @@ impl<'a> GFXState<'a> {
                     content,
                     color,
                 } => {
-                    log::debug!("Drawing text {}", content);
-                    self.text_buffer.set_text(
-                        &mut self.font_system,
-                        &content,
-                        glyphon::Attrs::new().family(glyphon::Family::SansSerif),
-                        glyphon::Shaping::Advanced,
-                    );
-
-                    match self.text_renderer.prepare(
-                        &self.device,
-                        &self.queue,
-                        &mut self.font_system,
-                        &mut self.atlas,
-                        &self.viewport,
-                        [glyphon::TextArea {
-                            buffer: &self.text_buffer,
-                            left: position[0],
-                            top: position[1],
-                            scale: 1.0,
-                            bounds: glyphon::TextBounds {
-                                left: 0,
-                                top: 0,
-                                right: self.window.inner_size().width as i32,
-                                bottom: self.window.inner_size().height as i32,
-                            },
-                            default_color: utils::float_colors_to_glyphon_rgba(color),
-                            custom_glyphs: &[],
-                        }],
-                        &mut self.swash_cache,
-                    ) {
-                        Ok(_) => {}
-                        Err(_) => return Err(wgpu::SurfaceError::Other),
-                    };
-
-                    match self
-                        .text_renderer
-                        .render(&self.atlas, &self.viewport, &mut render_pass)
-                    {
-                        Ok(_) => {}
-                        Err(_) => return Err(wgpu::SurfaceError::Other),
-                    };
+                    text_areas.push(glyphon::TextArea {
+                        buffer: content,
+                        left: position[0],
+                        top: position[1],
+                        scale: 1.0,
+                        bounds: glyphon::TextBounds {
+                            left: 0,
+                            top: 0,
+                            right: self.window.inner_size().width as i32,
+                            bottom: self.window.inner_size().height as i32,
+                        },
+                        default_color: utils::float_colors_to_glyphon_rgba(*color),
+                        custom_glyphs: &[],
+                    });
                 }
             }
         }
+
+        match self.text_renderer.prepare(
+            &self.device,
+            &self.queue,
+            &mut self.font_system,
+            &mut self.atlas,
+            &self.viewport,
+            text_areas,
+            &mut self.swash_cache,
+        ) {
+            Ok(_) => {}
+            Err(_) => return Err(wgpu::SurfaceError::Other),
+        };
+
+        match self
+            .text_renderer
+            .render(&self.atlas, &self.viewport, &mut render_pass)
+        {
+            Ok(_) => {}
+            Err(_) => return Err(wgpu::SurfaceError::Other),
+        };
 
         drop(render_pass);
         self.queue.submit(Some(encoder.finish()));
@@ -429,7 +432,24 @@ impl<'a> GFXState<'a> {
         self.render_commands_inner = cmds;
     }
 
-    pub fn get_text_buffer(&mut self) -> &mut glyphon::Buffer {
-        &mut self.text_buffer
+    pub fn get_text_default_font_and_winsize(&mut self) -> (&mut glyphon::FontSystem, [f64; 2]) {
+        (
+            &mut self.font_system,
+            [
+                (self.config.width as f64 * self.window.scale_factor()),
+                (self.config.height as f64 * self.window.scale_factor()),
+            ],
+        )
+    }
+
+    pub fn get_text_default_font(&mut self) -> &mut glyphon::FontSystem {
+        &mut self.font_system
+    }
+
+    pub fn get_window_size(&self) -> [f64; 2] {
+        [
+            (self.config.width as f64 * self.window.scale_factor()),
+            (self.config.height as f64 * self.window.scale_factor()),
+        ]
     }
 }

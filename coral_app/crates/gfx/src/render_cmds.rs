@@ -1,3 +1,5 @@
+use glyphon;
+
 #[derive(Clone, Debug)]
 pub enum GFXRenderCommand {
     Rect {
@@ -13,7 +15,7 @@ pub enum GFXRenderCommand {
     },
     Text {
         position: [f32; 2],
-        content: String,
+        content: glyphon::Buffer,
         color: [f32; 4],
     },
 }
