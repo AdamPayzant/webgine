@@ -10,14 +10,18 @@ use winit::window::{Window, WindowAttributes, WindowId};
 use gfx;
 
 mod config_engine;
+mod header;
 mod log_setup;
 mod pane;
+
+use header::header::HeaderState;
 
 struct App<'a> {
     window: Option<Arc<Window>>,
     state: Option<gfx::GFXState<'a>>,
     config: config_engine::Config,
 
+    header: HeaderState,
     panes: Vec<pane::pane::Pane>,
     active_pane: usize,
 }
@@ -28,6 +32,7 @@ impl Default for App<'_> {
             window: None,
             state: None,
             config: config_engine::Config::default(),
+            header: HeaderState::new(),
             panes: Vec::new(),
             active_pane: 0,
         }
@@ -44,8 +49,9 @@ impl ApplicationHandler for App<'_> {
         self.window = Some(window.clone());
         self.state = Some(pollster::block_on(gfx::GFXState::new(window.clone())));
 
-        // TODO: Make this more generic
-        self.panes.push(pane::pane::Pane::new_from_file(""));
+        if self.panes.is_empty() {
+            self.panes.push(pane::pane::Pane::new_from_file(""));
+        }
     }
 
     fn window_event(

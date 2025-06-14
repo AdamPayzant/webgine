@@ -2,7 +2,7 @@ use bytemuck;
 use glyphon;
 use log;
 use std::sync::Arc;
-use wgpu;
+use wgpu::{self, RenderPass};
 use winit::{event::WindowEvent, window::Window};
 
 pub mod utils;
@@ -19,6 +19,7 @@ pub struct GFXState<'a> {
     config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
     pub window: Arc<Window>,
+    header_offset: f64,
 
     render_pipeline: wgpu::RenderPipeline,
     render_commands_outer: Vec<GFXRenderCommand>, // For the outer UI of the browser
@@ -149,7 +150,7 @@ impl<'a> GFXState<'a> {
 
         let vertex_buffer = utils::new_vertex_buffer(&device);
 
-        let swapchain_format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let swapchain_format = wgpu::TextureFormat::Bgra8UnormSrgb;
 
         let mut font_system = glyphon::FontSystem::new();
         let swash_cache = glyphon::SwashCache::new();
@@ -192,6 +193,7 @@ impl<'a> GFXState<'a> {
             render_pipeline,
             render_commands_outer,
             render_commands_inner,
+            header_offset: 1.0, // In clip space
 
             vertex_buffers: vec![vertex_buffer],
             text_buffers: Vec::new(),
@@ -263,137 +265,27 @@ impl<'a> GFXState<'a> {
 
         render_pass.set_pipeline(&self.render_pipeline);
 
-        let render_cmds = [
-            self.render_commands_outer.clone(),
-            self.render_commands_inner.clone(),
-        ]
-        .concat();
+        let mut header_cmds = self.render_commands_outer.clone();
+        let mut body_cmds = self.render_commands_inner.clone();
 
         let mut cur_vert_buffer: usize = 0;
         let mut offset = 0;
         let mut text_areas: Vec<glyphon::TextArea> = Vec::new();
-
-        for cmd in &render_cmds {
-            match &cmd {
-                GFXRenderCommand::Rect {
-                    position,
-                    size,
-                    color,
-                } => {
-                    if !(offset < utils::VERTEX_BUFFER_MAX_RECT) {
-                        cur_vert_buffer += 1;
-                        offset = 0;
-                    }
-
-                    let mut buffer = match self.vertex_buffers.get_mut(cur_vert_buffer) {
-                        Some(v) => v,
-                        None => {
-                            self.vertex_buffers
-                                .push(utils::new_vertex_buffer(&self.device));
-                            match self.vertex_buffers.last_mut() {
-                                Some(v) => v,
-                                None => {
-                                    // ERROR
-                                    return Err(wgpu::SurfaceError::Other);
-                                }
-                            }
-                        }
-                    };
-
-                    let vertices = utils::create_rect_vertices(
-                        utils::absolute_to_clip_space(*position),
-                        *size,
-                        *color,
-                    );
-                    let byte_offset = utils::compute_vertex_buffer_offset(offset);
-                    let vertex_data_size = std::mem::size_of::<Vertex>() * 6;
-                    self.queue.write_buffer(
-                        &mut buffer,
-                        byte_offset,
-                        bytemuck::cast_slice(&vertices),
-                    );
-
-                    render_pass.set_vertex_buffer(
-                        0,
-                        buffer.slice(byte_offset..byte_offset + vertex_data_size as u64),
-                    );
-                    render_pass.draw(0..6, 0..1);
-                    offset += 1;
-                }
-                GFXRenderCommand::Outline {
-                    position,
-                    size,
-                    thickness,
-                    color,
-                } => {
-                    let vertices = utils::create_outline(
-                        utils::absolute_to_clip_space(*position),
-                        *size,
-                        *thickness,
-                        self.window.inner_size().width,
-                        self.window.inner_size().height,
-                        *color,
-                    );
-                    for vert in vertices {
-                        if !(offset < utils::VERTEX_BUFFER_MAX_RECT) {
-                            cur_vert_buffer += 1;
-                            offset = 0;
-                        }
-
-                        let mut buffer = match self.vertex_buffers.get_mut(cur_vert_buffer) {
-                            Some(v) => v,
-                            None => {
-                                self.vertex_buffers
-                                    .push(utils::new_vertex_buffer(&self.device));
-                                match self.vertex_buffers.last_mut() {
-                                    Some(v) => v,
-                                    None => {
-                                        // ERROR
-                                        return Err(wgpu::SurfaceError::Other);
-                                    }
-                                }
-                            }
-                        };
-
-                        let byte_offset = utils::compute_vertex_buffer_offset(offset);
-                        let vertex_data_size = std::mem::size_of::<Vertex>() * 6;
-
-                        self.queue.write_buffer(
-                            &mut buffer,
-                            utils::compute_vertex_buffer_offset(offset),
-                            bytemuck::cast_slice(&vert),
-                        );
-
-                        render_pass.set_vertex_buffer(
-                            0,
-                            buffer.slice(byte_offset..byte_offset + vertex_data_size as u64),
-                        );
-                        render_pass.draw(0..6, 0..1);
-                        offset += 1;
-                    }
-                }
-                GFXRenderCommand::Text {
-                    position,
-                    content,
-                    color,
-                } => {
-                    text_areas.push(glyphon::TextArea {
-                        buffer: content,
-                        left: position[0],
-                        top: position[1],
-                        scale: 1.0,
-                        bounds: glyphon::TextBounds {
-                            left: 0,
-                            top: 0,
-                            right: self.window.inner_size().width as i32,
-                            bottom: self.window.inner_size().height as i32,
-                        },
-                        default_color: utils::float_colors_to_glyphon_rgba(*color),
-                        custom_glyphs: &[],
-                    });
-                }
-            }
-        }
+        // TODO: Draw header
+        self.convert_render_cmd(
+            &mut header_cmds,
+            &mut offset,
+            &mut cur_vert_buffer,
+            &mut render_pass,
+            &mut text_areas,
+        )?;
+        self.convert_render_cmd(
+            &mut body_cmds,
+            &mut offset,
+            &mut cur_vert_buffer,
+            &mut render_pass,
+            &mut text_areas,
+        )?;
 
         match self.text_renderer.prepare(
             &self.device,
@@ -424,6 +316,138 @@ impl<'a> GFXState<'a> {
         Ok(())
     }
 
+    fn convert_render_cmd<'b>(
+        &mut self,
+        render_cmds: &'b Vec<GFXRenderCommand>,
+        offset: &mut u64,
+        cur_vert_buffer: &mut usize,
+        render_pass: &mut RenderPass,
+        text_areas: &mut Vec<glyphon::TextArea<'b>>,
+    ) -> Result<(), wgpu::SurfaceError> {
+        for cmd in render_cmds {
+            match cmd {
+                GFXRenderCommand::Rect {
+                    position,
+                    size,
+                    color,
+                } => {
+                    if !(*offset < utils::VERTEX_BUFFER_MAX_RECT) {
+                        *cur_vert_buffer += 1;
+                        *offset = 0;
+                    }
+
+                    let mut buffer = match self.vertex_buffers.get_mut(*cur_vert_buffer) {
+                        Some(v) => v,
+                        None => {
+                            self.vertex_buffers
+                                .push(utils::new_vertex_buffer(&self.device));
+                            match self.vertex_buffers.last_mut() {
+                                Some(v) => v,
+                                None => {
+                                    // ERROR
+                                    return Err(wgpu::SurfaceError::Other);
+                                }
+                            }
+                        }
+                    };
+
+                    let vertices = utils::create_rect_vertices(
+                        utils::absolute_to_clip_space(*position),
+                        *size,
+                        *color,
+                    );
+                    let byte_offset = utils::compute_vertex_buffer_offset(*offset);
+                    let vertex_data_size = std::mem::size_of::<Vertex>() * 6;
+                    self.queue.write_buffer(
+                        &mut buffer,
+                        byte_offset,
+                        bytemuck::cast_slice(&vertices),
+                    );
+
+                    render_pass.set_vertex_buffer(
+                        0,
+                        buffer.slice(byte_offset..byte_offset + vertex_data_size as u64),
+                    );
+                    render_pass.draw(0..6, 0..1);
+                    *offset += 1;
+                }
+                GFXRenderCommand::Outline {
+                    position,
+                    size,
+                    thickness,
+                    color,
+                } => {
+                    let vertices = utils::create_outline(
+                        utils::absolute_to_clip_space(*position),
+                        *size,
+                        *thickness,
+                        self.window.inner_size().width,
+                        self.window.inner_size().height,
+                        *color,
+                    );
+                    for vert in vertices {
+                        if !(*offset < utils::VERTEX_BUFFER_MAX_RECT) {
+                            *cur_vert_buffer += 1;
+                            *offset = 0;
+                        }
+
+                        let mut buffer = match self.vertex_buffers.get_mut(*cur_vert_buffer) {
+                            Some(v) => v,
+                            None => {
+                                self.vertex_buffers
+                                    .push(utils::new_vertex_buffer(&self.device));
+                                match self.vertex_buffers.last_mut() {
+                                    Some(v) => v,
+                                    None => {
+                                        // ERROR
+                                        return Err(wgpu::SurfaceError::Other);
+                                    }
+                                }
+                            }
+                        };
+
+                        let byte_offset = utils::compute_vertex_buffer_offset(*offset);
+                        let vertex_data_size = std::mem::size_of::<Vertex>() * 6;
+
+                        self.queue.write_buffer(
+                            &mut buffer,
+                            utils::compute_vertex_buffer_offset(*offset),
+                            bytemuck::cast_slice(&vert),
+                        );
+
+                        render_pass.set_vertex_buffer(
+                            0,
+                            buffer.slice(byte_offset..byte_offset + vertex_data_size as u64),
+                        );
+                        render_pass.draw(0..6, 0..1);
+                        *offset += 1;
+                    }
+                }
+                GFXRenderCommand::Text {
+                    position,
+                    content,
+                    color,
+                } => {
+                    text_areas.push(glyphon::TextArea {
+                        buffer: content,
+                        left: position[0],
+                        top: position[1],
+                        scale: 1.0,
+                        bounds: glyphon::TextBounds {
+                            left: 0,
+                            top: 0,
+                            right: self.window.inner_size().width as i32,
+                            bottom: self.window.inner_size().height as i32,
+                        },
+                        default_color: utils::float_colors_to_glyphon_rgba(*color),
+                        custom_glyphs: &[],
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn set_outer_render_cmds(&mut self, cmds: Vec<GFXRenderCommand>) {
         self.render_commands_outer = cmds;
     }
@@ -447,9 +471,13 @@ impl<'a> GFXState<'a> {
     }
 
     pub fn get_window_size(&self) -> [f64; 2] {
-        [
+        let mut res = [
             (self.config.width as f64 * self.window.scale_factor()),
             (self.config.height as f64 * self.window.scale_factor()),
-        ]
+        ];
+        let offset = ((self.header_offset + 1.0) / 2.0) * res[1] as f64;
+        res[1] -= offset;
+
+        res
     }
 }
