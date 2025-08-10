@@ -1,6 +1,5 @@
 use bytemuck;
 use glyphon;
-use log;
 use std::sync::Arc;
 use wgpu::{self, RenderPass};
 use winit::{event::WindowEvent, window::Window};
@@ -26,14 +25,12 @@ pub struct GFXState<'a> {
     render_commands_inner: Vec<GFXRenderCommand>, // For the contents of the pane
 
     vertex_buffers: Vec<wgpu::Buffer>,
-    text_buffers: Vec<glyphon::Buffer>,
 
     font_system: glyphon::FontSystem,
     swash_cache: glyphon::SwashCache,
     viewport: glyphon::Viewport,
     atlas: glyphon::TextAtlas,
     text_renderer: glyphon::TextRenderer,
-    text_buffer: glyphon::Buffer,
 }
 
 impl<'a> GFXState<'a> {
@@ -163,25 +160,6 @@ impl<'a> GFXState<'a> {
             wgpu::MultisampleState::default(),
             None,
         );
-        let mut text_buffer =
-            glyphon::Buffer::new(&mut font_system, glyphon::Metrics::new(30.0, 42.0));
-        text_buffer.set_size(
-            &mut font_system,
-            Some((config.width as f64 * window.scale_factor()) as f32),
-            Some((config.height as f64 * window.scale_factor()) as f32),
-        );
-
-        // render_commands_inner.push(GFXRenderCommand::Outline {
-        //     position: [0.0, 0.0],
-        //     size: [0.4, 0.4],
-        //     thickness: 4.0,
-        //     color: [1.0, 0.0, 0.0, 0.0],
-        // });
-        // render_commands_inner.push(GFXRenderCommand::Text {
-        //     position: [0.01, -0.1],
-        //     content: "Hello World".to_owned(),
-        //     color: [0.0, 0.0, 0.0, 1.0],
-        // });
 
         Self {
             surface,
@@ -196,14 +174,12 @@ impl<'a> GFXState<'a> {
             header_offset: 1.0, // In clip space
 
             vertex_buffers: vec![vertex_buffer],
-            text_buffers: Vec::new(),
 
             font_system,
             swash_cache,
             viewport,
             atlas,
             text_renderer,
-            text_buffer,
         }
     }
 

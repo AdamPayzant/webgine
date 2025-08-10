@@ -84,7 +84,6 @@ impl Node {
                     data: s.clone(),
                     font: None,
                 });
-                // TODO: Eventually format based on styling
             }
             NodeType::Element(e) => {
                 if matches!(e.element_type, HTMLElementType::Head(_)) {
@@ -92,8 +91,12 @@ impl Node {
                     return res;
                 }
                 res = e.get_display_box();
+                res.style = display_data::styling::Styling::from_strings(
+                    doc,
+                    e.global_attributes.get_classes(),
+                    e.global_attributes.get_inline_styling(),
+                );
             }
-            // TODO: Get display information for element
             _ => {}
         };
 

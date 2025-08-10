@@ -101,7 +101,7 @@ pub struct GlobalAttributes {
     popover: Option<PopOverState>,
     slot: Option<String>,
     spellcheck: bool,
-    // style: , Figure out how we're doing styling
+    style: Vec<String>, // Figure out how we're doing styling
     tabindex: Option<u16>,
     title: Option<String>,
     translate: bool,
@@ -137,6 +137,7 @@ impl Default for GlobalAttributes {
             popover: None,
             slot: None,
             spellcheck: false,
+            style: Vec::new(),
             tabindex: None,
             title: None,
             translate: false,
@@ -285,7 +286,7 @@ impl GlobalAttributes {
                 return true;
             }
             "style" => {
-                // TODO: Figure out styling
+                self.style.push(value.clone());
             }
             "tabindex" => {
                 // parse as a u32 so we cap to the maximum size
@@ -327,5 +328,13 @@ impl GlobalAttributes {
         }
 
         return false;
+    }
+
+    pub fn get_inline_styling(&self) -> &Vec<String> {
+        &self.style
+    }
+
+    pub fn get_classes(&self) -> &str {
+        &self.class
     }
 }

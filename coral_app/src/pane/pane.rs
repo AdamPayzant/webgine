@@ -43,45 +43,50 @@ impl Pane {
         };
         let dom = doc.get_display_data();
 
-        fn internal_generate_cmds(
-            display: &DisplayBox,
-            offset: &mut [f32; 2],
-            gfx_state: &mut GFXState,
-        ) -> Vec<GFXRenderCommand> {
-            let mut res = Vec::new();
-            for c in &display.children {
-                res.append(&mut internal_generate_cmds(c, offset, gfx_state));
-            }
+        let mut parents: Vec<(&DisplayBox, usize)> = Vec::new();
+        let mut active_styling: Vec<&sunbeam_html::display_data::styling::Styling> = Vec::new();
 
-            // TODO: Implement this properly
-            match &display.data {
-                DisplayBoxData::Text(t) => {
-                    let str = t.data.trim().to_string();
-                    if !str.is_empty() {
-                        let (font, size) = gfx_state.get_text_default_font_and_winsize();
-                        let buffer = utils::create_default_text_buffer(&str, font, size);
-
-                        let cmd = GFXRenderCommand::Text {
-                            position: offset.clone(),
-                            content: buffer,
-                            color: [0.0, 0.0, 0.0, 1.0],
-                        };
-
-                        let (x, y) = utils::get_size_of_text(&cmd);
-                        offset[0] = 0.;
-                        offset[1] += y;
-
-                        res.push(cmd);
-                    }
-                }
-                // TODO: Finish the rest of the elements
-                _ => {}
-            };
-
-            res
-        }
-
+        parents.push((&dom, 0));
         let mut offset = [0.0, 0.0];
-        self.render_cmds = internal_generate_cmds(&dom, &mut offset, gfx_state);
+        while !parents.is_empty() {
+            if let Some((node, idx)) = parents.last_mut() {
+                if node.children.len() <= *idx {
+                    // Generate render command for this node
+                    match &node.data {
+                        DisplayBoxData::Text(t) => {
+                            let str = t.data.trim().to_string();
+                            if !str.is_empty() {
+                                let (font, size) = gfx_state.get_text_default_font_and_winsize();
+                                let buffer = utils::create_default_text_buffer(&str, font, size);
+
+                                let cmd = GFXRenderCommand::Text {
+                                    position: offset.clone(),
+                                    content: buffer,
+                                    color: [0.0, 0.0, 0.0, 1.0],
+                                };
+
+                                let (x, y) = utils::get_size_of_text(&cmd);
+                                offset[0] = 0.;
+                                offset[1] += y;
+
+                                self.render_cmds.push(cmd);
+                            }
+                        }
+                        DisplayBoxData::None => {}
+                        // TODO: Finish the rest of the elements
+                        _ => {}
+                    }
+
+                    parents.pop();
+                    active_styling.pop();
+                } else {
+                    let child = &node.children[*idx];
+
+                    *idx += 1;
+                    active_styling.push(&node.style);
+                    parents.push((child, 0));
+                }
+            }
+        }
     }
 }

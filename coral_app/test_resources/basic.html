@@ -2,19 +2,29 @@
 <html lang="en">
     <head>
         <title>Basic</title>
+        <style>
+            .short {
+                width: 20%;
+            }
+            .container {
+                display: flex;
+            }
+        </style>
     </head>
     <body>
-        <div>
-            <p>Test</p>
-        </div>
-        <div>
-            <p>
-                Text that is longer than the previous ones to verify line
-                wrapping behaves as expected.
-            </p>
-        </div>
-        <div>
-            <p>Third</p>
+        <div class="container">
+            <div>
+                <p>Test</p>
+            </div>
+            <div>
+                <p>
+                    Text that is longer than the previous ones to verify line
+                    wrapping behaves as expected.
+                </p>
+            </div>
+            <div>
+                <p>Third</p>
+            </div>
         </div>
     </body>
 </html>
